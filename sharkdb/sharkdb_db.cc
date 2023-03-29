@@ -8,6 +8,8 @@
 #include "sharkdb_db.h"
 #include "core/db_factory.h"
 
+#include <sharkdb.h>
+
 using std::cout;
 using std::endl;
 
@@ -38,6 +40,7 @@ DB::Status SharkDB::Insert(const std::string &table, const std::string &key,
 }
 
 DB::Status SharkDB::Delete(const std::string &table, const std::string &key) {
+  
   return kOK;
 }
 

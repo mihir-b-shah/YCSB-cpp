@@ -1,13 +1,6 @@
-//
-//  basic_db.h
-//  YCSB-C
-//
-//  Created by Jinglei Ren on 12/17/14.
-//  Copyright (c) 2014 Jinglei Ren <jinglei@ren.systems>.
-//
 
-#ifndef YCSB_C_BASIC_DB_H_
-#define YCSB_C_BASIC_DB_H_
+#ifndef YCSB_C_SHARKDB_DB_H_
+#define YCSB_C_SHARKDB_DB_H_
 
 #include "core/db.h"
 #include "core/properties.h"
@@ -39,5 +32,5 @@ DB *NewSharkDB();
 
 } // ycsbc
 
-#endif // YCSB_C_SHARK_DB_H_
+#endif // YCSB_C_SHARKDB_DB_H_
 
