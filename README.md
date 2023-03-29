@@ -5,7 +5,7 @@ This is a fork of [YCSB-C](https://github.com/basicthinker/YCSB-C) with some add
 
  * Tail latency report using [HdrHistogram_c](https://github.com/HdrHistogram/HdrHistogram_c)
  * Small changes to make it behave more like the original YCSB
- * Supported Databases: LevelDB, RocksDB, LMDB, WiredTiger
+ * Supported Databases: LevelDB, RocksDB
 
 # Build YCSB-cpp
 
@@ -49,7 +49,7 @@ BIND_ROCKSDB ?= 1
 git submodule update --init
 mkdir build
 cd build
-cmake -DBIND_ROCKSDB=1 -DBIND_WIREDTIGER=1 -DBIND_LMDB=1 -DBIND_LEVELDB=1 -DWITH_SNAPPY=1 -DWITH_LZ4=1 -DWITH_ZSTD=1 ..
+cmake -DBIND_ROCKSDB=1 -DBIND_LEVELDB=1 -DWITH_SNAPPY=1 -DWITH_LZ4=1 -DWITH_ZSTD=1 ..
 make
 ```
 
