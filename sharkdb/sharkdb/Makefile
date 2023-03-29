@@ -1,6 +1,6 @@
 FLAGS=-g -O2
-O_FILES=$(patsubst src/%.c,build/%.o,$(wildcard src/*.c))
-TESTS=$(patsubst tests/%.c,build/%.run,$(wildcard tests/*.c))
+O_FILES=$(patsubst src/%.cc,build/%.o,$(wildcard src/*.cc))
+TESTS=$(patsubst tests/%.cc,build/%.run,$(wildcard tests/*.cc))
 TGT=build/libsharkdb.so
 TGT_LFLAGS=-lsharkdb
 HDR=sharkdb.h
@@ -8,13 +8,13 @@ HDR=sharkdb.h
 all: $(TGT) $(TESTS)
 
 $(TGT): $(O_FILES)
-	gcc $(FLAGS) -shared $(O_FILES) -o $@
+	g++ $(FLAGS) -shared $(O_FILES) -o $@
 
-build/%.o: src/%.c $(HDR)
-	gcc -I. -c $(FLAGS) -o $@ $<
+build/%.o: src/%.cc $(HDR)
+	g++ -I. -c $(FLAGS) -o $@ $<
 
-build/%.run: tests/%.c $(HDR)
-	gcc -I. -o $@ $(FLAGS) $< -L./build/ -Wl,-rpath=./build/ $(TGT_LFLAGS)
+build/%.run: tests/%.cc $(HDR)
+	g++ -I. -o $@ $(FLAGS) $< -L./build/ -Wl,-rpath=./build/ $(TGT_LFLAGS)
 
 clean:
 	rm $(TGT) $(TESTS) $(O_FILES)

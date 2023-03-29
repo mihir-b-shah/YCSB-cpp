@@ -18,7 +18,7 @@ BIND_ROCKSDB ?= 0
 # Extra options
 DEBUG_BUILD ?= 0
 EXTRA_CXXFLAGS ?= -I./leveldb/leveldb/include -I./sharkdb/sharkdb
-EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -lsnappy
+EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -Wl,-rpath=./sharkdb/sharkdb/build -lsnappy
 
 #----------------------------------------------------------
 

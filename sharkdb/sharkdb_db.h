@@ -7,10 +7,12 @@
 
 #include <iostream>
 #include <string>
-#include <mutex>
+
+#include <sharkdb.h>
 
 namespace ycsbc {
 
+// just ignore table for now.
 class SharkDB : public DB {
  public:
   void Init();
@@ -26,6 +28,9 @@ class SharkDB : public DB {
   Status Insert(const std::string &table, const std::string &key, std::vector<Field> &values);
 
   Status Delete(const std::string &table, const std::string &key);
+ 
+ private:
+  sharkdb_p db_impl;
 };
 
 DB *NewSharkDB();
