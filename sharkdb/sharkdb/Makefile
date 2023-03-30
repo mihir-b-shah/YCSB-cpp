@@ -11,7 +11,7 @@ $(TGT): $(O_FILES)
 	g++ $(FLAGS) -shared $(O_FILES) -o $@
 
 build/%.o: src/%.cc $(HDR)
-	g++ -I. -c $(FLAGS) -o $@ $<
+	g++ -I. -I./liburing/include -c $(FLAGS) -L./liburing/lib -Wl,-rpath=./liburing/lib -luring -o $@ $<
 
 build/%.run: tests/%.cc $(HDR)
 	g++ -I. -o $@ $(FLAGS) $< -L./build/ -Wl,-rpath=./build/ $(TGT_LFLAGS)
