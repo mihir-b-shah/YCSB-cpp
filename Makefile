@@ -13,7 +13,6 @@
 # Database bindings
 BIND_SHARKDB ?= 1
 BIND_LEVELDB ?= 1
-BIND_ROCKSDB ?= 0
 
 # Extra options
 DEBUG_BUILD ?= 0
@@ -37,11 +36,6 @@ endif
 ifeq ($(BIND_LEVELDB), 1)
 	LDFLAGS += -lleveldb
 	SOURCES += $(wildcard leveldb/*.cc)
-endif
-
-ifeq ($(BIND_ROCKSDB), 1)
-	LDFLAGS += -lrocksdb
-	SOURCES += $(wildcard rocksdb/*.cc)
 endif
 
 CXXFLAGS += -std=c++17 -Wall -pthread $(EXTRA_CXXFLAGS) -I./

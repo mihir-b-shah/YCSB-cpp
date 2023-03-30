@@ -6,10 +6,10 @@
 
 int main() {
     sharkdb_p p_db = sharkdb_init();
-    const char* k = "012345678901234567890123";
-    const char* v = (const char*) malloc(1000);
+    std::vector<const char*> ks = {"012345678901234567890123"};
+    std::vector<const char*> vs = {(const char*) malloc(1000)};
 
-    sharkdb_insert(p_db, k, v);
+    sharkdb_multiwrite(p_db, ks, vs);
     sharkdb_free(p_db);
     printf("Done!\n");
     return 0;
