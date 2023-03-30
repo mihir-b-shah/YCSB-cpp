@@ -51,7 +51,10 @@ OBJECTS += $(SOURCES:.cc=.o)
 DEPS += $(SOURCES:.cc=.d)
 EXEC = ycsb
 
-all: $(EXEC)
+all: make_dep $(EXEC)
+
+make_dep:
+	make -C sharkdb/sharkdb/
 
 $(EXEC): $(OBJECTS)
 	@$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@

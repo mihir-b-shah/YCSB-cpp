@@ -26,8 +26,7 @@ DB::Status SharkDB::Read(const std::string &table, const std::string &key,
   assert(key.size() == SHARKDB_KEY_SIZE && fields == NULL && result.size() == 0);
   result.emplace_back();
   result[0].name = FIELD_NAME;
-  result[0].value.reserve(SHARKDB_VAL_SIZE);
-  sharkdb_read(this->db_impl, key.data(), result[0].value.data());
+  sharkdb_read(this->db_impl, key, result[0].value);
   return kOK;
 }
 
@@ -40,20 +39,20 @@ DB::Status SharkDB::Scan(const std::string &table, const std::string &key, int l
 DB::Status SharkDB::Update(const std::string &table, const std::string &key,
                            std::vector<Field> &values) {
   assert(key.size() == SHARKDB_KEY_SIZE && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_SIZE);
-  sharkdb_update(this->db_impl, key.data(), values[0].value.data()); 
+  sharkdb_update(this->db_impl, key, std::move(values[0].value));
   return kOK;
 }
 
 DB::Status SharkDB::Insert(const std::string &table, const std::string &key,
                            std::vector<Field> &values) {
   assert(key.size() == SHARKDB_KEY_SIZE && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_SIZE);
-  sharkdb_insert(this->db_impl, key.data(), values[0].value.data()); 
+  sharkdb_insert(this->db_impl, key, std::move(values[0].value));
   return kOK;
 }
 
 DB::Status SharkDB::Delete(const std::string &table, const std::string &key) {
   assert(key.size() == SHARKDB_KEY_SIZE);
-  sharkdb_delete(this->db_impl, key.data());
+  sharkdb_delete(this->db_impl, key);
   return kOK;
 }
 

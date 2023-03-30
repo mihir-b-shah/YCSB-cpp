@@ -8,13 +8,13 @@ HDR=sharkdb.h
 all: $(TGT) $(TESTS)
 
 $(TGT): $(O_FILES)
-	g++ $(FLAGS) -shared $(O_FILES) -o $@
+	g++ $(FLAGS) -shared $(O_FILES) -fPIC -ltbb -latomic -o $@
 
 build/%.o: src/%.cc $(HDR)
-	g++ -I. -I./liburing/include -c $(FLAGS) -L./liburing/lib -Wl,-rpath=./liburing/lib -luring -o $@ $<
+	g++ -I. -I./liburing/include -c $(FLAGS) -L./liburing/lib -Wl,-rpath=./liburing/lib -luring -latomic -ltbb -fPIC -o $@ $<
 
 build/%.run: tests/%.cc $(HDR)
-	g++ -I. -o $@ $(FLAGS) $< -L./build/ -Wl,-rpath=./build/ $(TGT_LFLAGS)
+	g++ -I. -fPIC -o $@ $(FLAGS) $< -L./build/ -Wl,-rpath=./build/ -ltbb $(TGT_LFLAGS)
 
 clean:
 	rm $(TGT) $(TESTS) $(O_FILES)
