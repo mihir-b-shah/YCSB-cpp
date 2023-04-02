@@ -18,12 +18,8 @@ static uint64_t hash_key(const char* k) {
 
 class bloom_filter_t {
 public:
-    bloom_filter_t(size_t n_bits) : n_bits_(n_bits) {
-        buf_ = new uint64_t[n_bits];
-    }
-    ~bloom_filter_t() {
-        delete[] buf_;
-    }
+    bloom_filter_t(size_t n_bits) : buf_(n_bits/64), n_bits_(n_bits) {}
+    ~bloom_filter_t() {}
 
     bool test(const char* k) {
         return test_single(hash_key<PRIMES[0]>(k)) && test_single(hash_key<PRIMES[1]>(k));
@@ -35,7 +31,7 @@ public:
     }
 
 private:
-    uint64_t* buf_;
+    std::vector<uint64_t> buf_;
     size_t n_bits_;
 
     // https://t5k.org/lists/small/millions/

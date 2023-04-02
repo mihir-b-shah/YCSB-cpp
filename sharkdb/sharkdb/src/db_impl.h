@@ -24,8 +24,10 @@ struct cmp_keys_lt {
 };
 
 struct fence_ptr_t {
-    const char* k;
-    size_t blk_num;
+    const char* k_;
+    size_t blk_num_;
+
+	fence_ptr_t(const char* k, size_t blk_num) : k_(k), blk_num_(blk_num) {} 
 };
 
 static constexpr size_t calc_n_blocks(size_t level) {
@@ -36,19 +38,15 @@ static constexpr size_t calc_n_filter_bits(size_t level) {
     return calc_n_blocks(level) * FILTER_BITS_PER_BLOCK;
 }
 
-static constexpr size_t calc_n_fence_ptrs(size_t level) {
-    return calc_n_blocks(level) / BLOCKS_PER_FENCE;
-}
-
 //  Let's keep functions free, just attach constructor/destructor.
-struct level_t {
+struct ss_table_t {
     size_t level_;
     int fd_;
     bloom_filter_t filter_;
     std::vector<fence_ptr_t> fence_ptrs_;
 
-    level_t(size_t level);
-    ~level_t();
+	ss_table_t(size_t level) : level_(level), filter_(calc_n_filter_bits(level)) {}
+	~ss_table_t() {}
 };
 
 struct mem_entry_t {
@@ -64,14 +62,60 @@ struct mem_entry_t {
     }
 };
 
-struct db_t {
+struct level_0_t {
 	typedef tbb::concurrent_map<const char*, mem_entry_t, cmp_keys_lt> mem_table_t;
-    mem_table_t mem_table_;
-    std::vector<level_t> disk_levels_;
-    wal_t wal_;
 
-    db_t();
-    ~db_t();
+    mem_table_t mem_table_;
+	wal_t wal_;
+	size_t id_;
+
+	level_0_t(size_t id) : mem_table_{cmp_keys_lt()}, id_(id) {}
+};
+
+void* flush_thr_body(void* arg);
+
+struct partition_t {
+	size_t tid_;
+	level_0_t* l0_;
+	level_0_t* l0_swp_;
+	//	Keep level 0 empty to allow intuitive indices.
+    std::vector<std::vector<ss_table_t*>> disk_levels_;
+
+	pthread_t flush_thr_;
+	pthread_t compact_thr_;
+	pthread_rwlock_t namespace_lock_;
+
+	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), disk_levels_(1+N_DISK_LEVELS) {
+		l0_ = new level_0_t(1);
+		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
+	}
+    ~partition_t() {
+		assert(pthread_cancel(flush_thr_) == 0);
+		void* res;
+		assert(pthread_join(flush_thr_, &res) == 0);
+
+		delete l0_;
+		if (l0_swp_ != nullptr) {
+			delete l0_swp_;
+		}
+		for (std::vector<ss_table_t*>& v : disk_levels_) {
+			for (ss_table_t* table : v) {
+				delete table;
+			}
+		}
+	}
+};
+
+struct db_t {
+	std::vector<partition_t> partitions_;
+
+	db_t() {
+		//	Necessary, since we're not implementing rule of 5...
+		partitions_.reserve(N_PARTITIONS);
+		for (size_t i = 0; i<N_PARTITIONS; ++i) {
+			partitions_.emplace_back(i);
+		}
+	}
 };
 
 #endif
