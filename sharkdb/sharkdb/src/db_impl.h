@@ -24,14 +24,16 @@ struct cmp_keys_lt {
 };
 
 struct fence_ptr_t {
-    const char* k_;
+    char k_[SHARKDB_KEY_BYTES];
     size_t blk_num_;
 
-	fence_ptr_t(const char* k, size_t blk_num) : k_(k), blk_num_(blk_num) {} 
+	fence_ptr_t(const char* k, size_t blk_num) : blk_num_(blk_num) {
+		memcpy(&k_[0], k, SHARKDB_KEY_BYTES);
+	} 
 };
 
 static constexpr size_t calc_n_blocks(size_t level) {
-    return MEM_TABLE_BYTES * GROWTH_POWERS[level] / BLOCK_BYTES;
+    return MEM_TABLE_MAX_ENTRIES * GROWTH_POWERS[level] / N_ENTRIES_PER_BLOCK;
 }
 
 static constexpr size_t calc_n_filter_bits(size_t level) {
@@ -84,15 +86,18 @@ struct partition_t {
 	pthread_t flush_thr_;
 	pthread_t compact_thr_;
 	pthread_rwlock_t namespace_lock_;
+	bool stop_flush_thr_;
 
-	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), disk_levels_(1+N_DISK_LEVELS) {
+	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), disk_levels_(1+N_DISK_LEVELS), stop_flush_thr_(false) {
 		l0_ = new level_0_t(1);
 		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
 	}
     ~partition_t() {
-		assert(pthread_cancel(flush_thr_) == 0);
+		stop_flush_thr_ = true;
+
 		void* res;
 		assert(pthread_join(flush_thr_, &res) == 0);
+		__sync_synchronize();
 
 		delete l0_;
 		if (l0_swp_ != nullptr) {
@@ -116,6 +121,8 @@ struct db_t {
 			partitions_.emplace_back(i);
 		}
 	}
+
+	~db_t() {}
 };
 
 #endif

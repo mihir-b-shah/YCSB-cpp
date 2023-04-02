@@ -8,6 +8,8 @@
 #include <liburing.h>
 #include <tbb/concurrent_map.h>
 
+thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
+
 sharkdb_p sharkdb_init() {
     return new db_t();
 }
@@ -23,7 +25,7 @@ static partition_t* get_partition(db_t* db, const char* k) {
 	assert(false && "Should have matched a memtable.");
 }
 
-void sharkdb_multiread(sharkdb_p db, std::vector<const char*>& ks, std::vector<const char*>& fill_vs) {
+void sharkdb_multiread(sharkdb_p db, std::vector<const char*>& ks, std::vector<char*>& fill_vs) {
     db_t* p_db = (db_t*) db;
     assert(ks.size() == fill_vs.size());
 
@@ -35,13 +37,49 @@ void sharkdb_multiread(sharkdb_p db, std::vector<const char*>& ks, std::vector<c
 		partition_t* part = get_partition(p_db, ks[i]);
 
 		level_0_t::mem_table_t::iterator it = part->l0_->mem_table_.find(ks[i]);
-		assert(it != part->l0_->mem_table_.end());
+		if (it != part->l0_->mem_table_.end()) {
+			assert(pthread_rwlock_rdlock(&it->second.lock_) == 0);
+			fill_vs[i] = (char*) it->second.v_;
+			assert(pthread_rwlock_unlock(&it->second.lock_) == 0);
+		} else {
+			for (std::vector<ss_table_t*>& ss_level : part->disk_levels_) {
+				for (ss_table_t* ss_table : ss_level) {
+					if (ss_table->filter_.test(ks[i])) {
+						// use fence pointers to find blocks to check.
+						fence_ptr_t dummy(ks[i], 0);
+						auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
+							return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
+						});
+						//	because fence pointers are left-justified.
+						assert(it != ss_table->fence_ptrs_.begin());
+						size_t blk_range_end = it->blk_num_;
+						it--;
+						size_t blk_range_start = it->blk_num_;
+						assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
 
-		assert(pthread_rwlock_rdlock(&it->second.lock_) == 0);
-		fill_vs[i] = it->second.v_;
-		assert(pthread_rwlock_unlock(&it->second.lock_) == 0);
-    }
+						/*	Fence pointers are good enough to store for <10 blocks at a time. As such,
+							just linearly stream the blocks in. */
+						assert(pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start) == BLOCK_BYTES*BLOCKS_PER_FENCE);
+						//	TODO scan the blocks to find me!
 
+						char* v = nullptr;
+						for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
+							for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
+								char* k = &pread_buf[b*BLOCK_BYTES + i*(SHARKDB_KEY_BYTES+SHARKDB_VAL_BYTES)];
+								if (memcmp(ks[i], k, SHARKDB_KEY_BYTES) == 0) {
+									v = k+SHARKDB_KEY_BYTES;
+									memcpy(fill_vs[i], v, SHARKDB_VAL_BYTES);
+									goto search_done;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	search_done:
 	for (size_t i = 0; i<N_PARTITIONS; ++i) {
 		assert(pthread_rwlock_unlock(&p_db->partitions_[i].namespace_lock_) == 0);
 	}
@@ -60,6 +98,7 @@ void sharkdb_multiwrite(sharkdb_p db, std::vector<const char*>& ks, std::vector<
 
     //  In real version, we'll use io_uring to overlap latencies here.
     for (size_t i = 0; i<ks.size(); ++i) {
+		fprintf(stderr, "Wrote i: %lu\n", i);
 		partition_t* part = get_partition(p_db, ks[i]);
 		level_0_t::mem_table_t* mem_table = &part->l0_->mem_table_;
 

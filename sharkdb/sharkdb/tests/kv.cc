@@ -15,7 +15,7 @@ int main() {
 	}
 
     std::vector<const char*> vs = {(const char*) v};
-    std::vector<const char*> vs_rd = {nullptr};
+    std::vector<char*> vs_rd = {nullptr};
 
 	sharkdb_multiwrite(p_db, ks, vs);
     sharkdb_multiread(p_db, ks, vs_rd);
