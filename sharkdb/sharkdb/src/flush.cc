@@ -25,7 +25,7 @@ void* flush_thr_body(void* arg) {
 		/*	Safe to check outside, since small race in read is not a problem. Size is presumably
 			<64 bits, so reads are atomic. */
 		if (part->l0_->mem_table_.size() >= (MEM_TABLE_MAX_ENTRIES * MEM_TABLE_FULL_THR)/100) {
-			fprintf(stderr, "rat tid=%lu!\n", part->tid_);
+			// fprintf(stderr, "rat tid=%lu!\n", part->tid_);
 			level_0_t* l0_new = new level_0_t(1+part->l0_->id_);
 			level_0_t* l0_flush = part->l0_;
 
@@ -38,7 +38,7 @@ void* flush_thr_body(void* arg) {
 			// level=1, since we are flushing.
 			char ss_table_name[40];
 			const char* ss_table_path = make_ss_table_path("/tmp/sharkdb/", &ss_table_name[0], part->tid_, 1, ss_table_id);
-			fprintf(stderr, "Opening %s\n", ss_table_path);
+			// fprintf(stderr, "Opening %s\n", ss_table_path);
 			ss_table_t* ss_table = new ss_table_t(1);
 			ss_table->fd_ = open(ss_table_path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
 

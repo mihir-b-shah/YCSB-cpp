@@ -1,4 +1,4 @@
-FLAGS=-g -O0 -fsanitize=address -fsanitize=undefined #-DNDEBUG
+FLAGS=-g -O2 #-fsanitize=address -fsanitize=undefined #-DNDEBUG
 O_FILES=$(patsubst src/%.cc,build/%.o,$(wildcard src/*.cc))
 TESTS=$(patsubst tests/%.cc,build/%.run,$(wildcard tests/*.cc))
 TGT=build/libsharkdb.so

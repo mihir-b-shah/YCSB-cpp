@@ -42,6 +42,9 @@ int main() {
 
 	printf("Before multiwrites.\n");
 	for (size_t i = 0; i<N_WRITES/10; ++i) {
+		if (i % 100 == 0) {
+			printf("Writing %lu\n", i*10);
+		}
 		sharkdb_multiwrite(p_db, ks_v[i], vs_v[i]);
 	}
 	printf("After multiwrite.\n");

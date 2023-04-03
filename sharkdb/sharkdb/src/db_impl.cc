@@ -98,7 +98,7 @@ void sharkdb_multiwrite(sharkdb_p db, std::vector<const char*>& ks, std::vector<
 
     //  In real version, we'll use io_uring to overlap latencies here.
     for (size_t i = 0; i<ks.size(); ++i) {
-		fprintf(stderr, "Wrote i: %lu\n", i);
+		// fprintf(stderr, "Wrote i: %lu\n", i);
 		partition_t* part = get_partition(p_db, ks[i]);
 		level_0_t::mem_table_t* mem_table = &part->l0_->mem_table_;
 
