@@ -27,7 +27,7 @@ static void open_wals() {
 		sprintf(&path[0], "/tmp/sharkdb/wal_%lu", i);
 		//	TODO fallocate here?
 		//	TODO O_DIRECT here?
-		wal_fds[i] = open((const char*) path, O_CREAT | O_APPEND | O_WRONLY | O_SYNC, S_IRUSR | S_IWUSR);
+		wal_fds[i] = open((const char*) path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
 		assert(wal_fds[i] >= 0);
 	}
 }
@@ -59,4 +59,8 @@ void log_write(wal_t* wal, wal_block_winfo_t* to_write) {
 	}
 	iovs[2*N_ENTRIES_PER_BLOCK] = (struct iovec) {wal->zero_padding_, WAL_BLOCK_PAD_BYTES};
 	assert(writev(wal->fd_, &iovs[0], 2*N_ENTRIES_PER_BLOCK+1) == BLOCK_BYTES);
+}
+
+void log_commit(wal_t* wal) {
+    assert(fsync(wal->fd_) == 0);
 }

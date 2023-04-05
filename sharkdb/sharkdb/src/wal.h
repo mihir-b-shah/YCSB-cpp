@@ -22,5 +22,6 @@ struct wal_t {
 };
 
 void log_write(wal_t* wal, wal_block_winfo_t* to_write);
+void log_commit(wal_t* wal);
 
 #endif

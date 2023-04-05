@@ -22,6 +22,6 @@ int main() {
 		assert(write(fd, &buf[0], 4096) == 4096);
 	}
 
-    assert(io_uring_queue_exit(&ring) == 0);
+    io_uring_queue_exit(&ring);
 	return 0;
 }
