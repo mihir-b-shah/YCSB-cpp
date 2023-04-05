@@ -113,6 +113,7 @@ void sharkdb_multiwrite(sharkdb_p db, std::vector<const char*>& ks, std::vector<
 		winfo.keys[0] = ks[i];
 		winfo.vals[0] = vs[i];
         log_write(&part->l0_->wal_, &winfo);
+		log_commit(&part->l0_->wal_);
 
 		// Now update in the memtable, if this wasn't an insert.
 		if (!r.second) {
