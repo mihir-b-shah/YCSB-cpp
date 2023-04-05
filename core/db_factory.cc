@@ -1,5 +1,4 @@
 //
-//  basic_db.cc
 //  YCSB-cpp
 //
 //  Copyright (c) 2020 Youngjae Lee <ls4154.lee@gmail.com>.
@@ -7,7 +6,6 @@
 //
 
 #include "db_factory.h"
-#include "basic_db.h"
 #include "db_wrapper.h"
 
 namespace ycsbc {
@@ -24,7 +22,7 @@ bool DBFactory::RegisterDB(std::string db_name, DBCreator db_creator) {
 }
 
 DB *DBFactory::CreateDB(utils::Properties *props, Measurements *measurements) {
-  std::string db_name = props->GetProperty("dbname", "basic");
+  std::string db_name = props->GetProperty("dbname");
   DB *db = nullptr;
   std::map<std::string, DBCreator> &registry = Registry();
   if (registry.find(db_name) != registry.end()) {

@@ -32,9 +32,11 @@ class LeveldbDB : public DB {
 
   void Cleanup();
 
-  Status Read(const std::string &table, const std::string &key,
-              const std::vector<std::string> *fields, std::vector<Field> &result) {
-    return (this->*(method_read_))(table, key, fields, result);
+  Status Read(const std::string &table, const std::vector<std::string> &keys,
+              const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results) {
+    // Do not call LevelDB with vectored R/W, use more threads.
+    assert(keys.size() == 1);
+    return (this->*(method_read_))(table, keys[0], fields, results[0]);
   }
 
   Status Scan(const std::string &table, const std::string &key, int len,
@@ -42,16 +44,13 @@ class LeveldbDB : public DB {
     return (this->*(method_scan_))(table, key, len, fields, result);
   }
 
-  Status Update(const std::string &table, const std::string &key, std::vector<Field> &values) {
-    return (this->*(method_update_))(table, key, values);
+  Status Update(const std::string &table, const std::vector<std::string> &keys, std::vector<std::vector<Field>> &values) {
+    assert(keys.size() == 1);
+    return (this->*(method_update_))(table, keys[0], values[0]);
   }
 
   Status Insert(const std::string &table, const std::string &key, std::vector<Field> &values) {
     return (this->*(method_insert_))(table, key, values);
-  }
-
-  Status Delete(const std::string &table, const std::string &key) {
-    return (this->*(method_delete_))(table, key);
   }
 
  private:
@@ -80,7 +79,6 @@ class LeveldbDB : public DB {
                            std::vector<Field> &values);
   Status InsertSingleEntry(const std::string &table, const std::string &key,
                            std::vector<Field> &values);
-  Status DeleteSingleEntry(const std::string &table, const std::string &key);
 
   Status ReadCompKeyRM(const std::string &table, const std::string &key,
                        const std::vector<std::string> *fields, std::vector<Field> &result);
@@ -94,7 +92,6 @@ class LeveldbDB : public DB {
                        std::vector<std::vector<Field>> &result);
   Status InsertCompKey(const std::string &table, const std::string &key,
                        std::vector<Field> &values);
-  Status DeleteCompKey(const std::string &table, const std::string &key);
 
   Status (LeveldbDB::*method_read_)(const std::string &, const std:: string &,
                                     const std::vector<std::string> *, std::vector<Field> &);
@@ -105,7 +102,6 @@ class LeveldbDB : public DB {
                                       std::vector<Field> &);
   Status (LeveldbDB::*method_insert_)(const std::string &, const std::string &,
                                       std::vector<Field> &);
-  Status (LeveldbDB::*method_delete_)(const std::string &, const std::string &);
 
   int fieldcount_;
   std::string field_prefix_;

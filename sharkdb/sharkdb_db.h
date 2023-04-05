@@ -17,17 +17,15 @@ class SharkDB : public DB {
  public:
   void Init();
 
-  Status Read(const std::string &table, const std::string &key,
-              const std::vector<std::string> *fields, std::vector<Field> &result);
+  Status Read(const std::string &table, const std::vector<std::string> &keys,
+              const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results);
 
   Status Scan(const std::string &table, const std::string &key, int len,
               const std::vector<std::string> *fields, std::vector<std::vector<Field>> &result);
 
-  Status Update(const std::string &table, const std::string &key, std::vector<Field> &values);
+  Status Update(const std::string &table, const std::vector<std::string> &keys, std::vector<std::vector<Field>> &values);
 
   Status Insert(const std::string &table, const std::string &key, std::vector<Field> &values);
-
-  Status Delete(const std::string &table, const std::string &key);
  
  private:
   sharkdb_p db_impl;

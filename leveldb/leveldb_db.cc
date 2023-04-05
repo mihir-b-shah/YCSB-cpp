@@ -67,21 +67,18 @@ void LeveldbDB::Init() {
     method_scan_ = &LeveldbDB::ScanSingleEntry;
     method_update_ = &LeveldbDB::UpdateSingleEntry;
     method_insert_ = &LeveldbDB::InsertSingleEntry;
-    method_delete_ = &LeveldbDB::DeleteSingleEntry;
   } else if (format == "row") {
     format_ = kRowMajor;
     method_read_ = &LeveldbDB::ReadCompKeyRM;
     method_scan_ = &LeveldbDB::ScanCompKeyRM;
     method_update_ = &LeveldbDB::InsertCompKey;
     method_insert_ = &LeveldbDB::InsertCompKey;
-    method_delete_ = &LeveldbDB::DeleteCompKey;
   } else if (format == "column") {
     format_ = kColumnMajor;
     method_read_ = &LeveldbDB::ReadCompKeyCM;
     method_scan_ = &LeveldbDB::ScanCompKeyCM;
     method_update_ = &LeveldbDB::InsertCompKey;
     method_insert_ = &LeveldbDB::InsertCompKey;
-    method_delete_ = &LeveldbDB::DeleteCompKey;
   } else {
     throw utils::Exception("unknown format");
   }
@@ -332,15 +329,6 @@ DB::Status LeveldbDB::InsertSingleEntry(const std::string &table, const std::str
   return kOK;
 }
 
-DB::Status LeveldbDB::DeleteSingleEntry(const std::string &table, const std::string &key) {
-  leveldb::WriteOptions wopt;
-  leveldb::Status s = db_->Delete(wopt, key);
-  if (!s.ok()) {
-    throw utils::Exception(std::string("LevelDB Delete: ") + s.ToString());
-  }
-  return kOK;
-}
-
 DB::Status LeveldbDB::ReadCompKeyRM(const std::string &table, const std::string &key,
                                     const std::vector<std::string> *fields,
                                     std::vector<Field> &result) {
@@ -448,23 +436,6 @@ DB::Status LeveldbDB::InsertCompKey(const std::string &table, const std::string 
   for (Field &field : values) {
     comp_key = BuildCompKey(key, field.name);
     batch.Put(comp_key, field.value);
-  }
-
-  leveldb::Status s = db_->Write(wopt, &batch);
-  if (!s.ok()) {
-    throw utils::Exception(std::string("LevelDB Write: ") + s.ToString());
-  }
-  return kOK;
-}
-
-DB::Status LeveldbDB::DeleteCompKey(const std::string &table, const std::string &key) {
-  leveldb::WriteOptions wopt;
-  leveldb::WriteBatch batch;
-
-  std::string comp_key;
-  for (int i = 0; i < fieldcount_; i++) {
-    comp_key = BuildCompKey(key, field_prefix_ + std::to_string(i));
-    batch.Delete(comp_key);
   }
 
   leveldb::Status s = db_->Write(wopt, &batch);

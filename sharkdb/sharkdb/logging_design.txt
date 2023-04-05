@@ -3,6 +3,18 @@ Just a side note, make sure we don't hold namespace locks for too long- should b
 doing now, where we hold them during a R/W op?
 
 Problems with the current design:
-- We fsync on every operation
+- We fsync on every operation. We can change this to fsync on every write batch submitted (Commit 61118d). This is a baseline to measure logging perf (throughput, vs latency)
+- The MAIN benefit of RocksDB's logging scheme is READ performance- i.e. that readers do not block
+  writers. This "sounds" like MVCC in a sequentially consistent system- but it's not- two writes to the
+  same key can be logged together. Note we still get reasonable semantics- if I write a value myself,
+  it will be persisted and then return to me- so a future read I do WILL read that value.
+- As such, we want to measure read perf. We should do this on a highly skewed dataset- so that it
+  maximally stresses the reads on a small (and cacheable) set- so I can essentially ignore compaction,
+  to make my life simple. 
 
-Let's start by implementing RocksDB's 
+It is obvious my system will get very poor R performance on a skewed dataset. Consider every op is on the
+same key. Then on every write in the current system, we will block readers. Suppose we have workload A
+from ycsb- this means for each log op, while we hold the lock, no reads will proceed.
+
+So how do we want to implement? Let's refactor YCSB-cpp to use multi-get ops. We'll worry about
+LevelDB later, and measure performance.

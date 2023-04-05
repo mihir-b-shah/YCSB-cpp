@@ -29,17 +29,17 @@ const char *ycsbc::kOperationString[ycsbc::MAXOPTYPE] = {
   "UPDATE",
   "SCAN",
   "READMODIFYWRITE",
-  "DELETE",
   "INSERT-FAILED",
   "READ-FAILED",
   "UPDATE-FAILED",
   "SCAN-FAILED",
   "READMODIFYWRITE-FAILED",
-  "DELETE-FAILED"
 };
 
 const string CoreWorkload::TABLENAME_PROPERTY = "table";
 const string CoreWorkload::TABLENAME_DEFAULT = "usertable";
+
+const size_t CoreWorkload::RW_KEYS_PER_OP = 1;
 
 const string CoreWorkload::FIELD_COUNT_PROPERTY = "fieldcount";
 const string CoreWorkload::FIELD_COUNT_DEFAULT = "1";
@@ -283,38 +283,33 @@ bool CoreWorkload::DoTransaction(DB &db) {
 }
 
 DB::Status CoreWorkload::TransactionRead(DB &db) {
-  uint64_t key_num = NextTransactionKeyNum();
-  const std::string key = BuildKeyName(key_num);
-  std::vector<DB::Field> result;
-  if (!read_all_fields()) {
-    std::vector<std::string> fields;
-    fields.push_back(NextFieldName());
-    return db.Read(table_name_, key, &fields, result);
-  } else {
-    return db.Read(table_name_, key, NULL, result);
+  std::vector<std::string> keys(RW_KEYS_PER_OP);
+  for (size_t i = 0; i<keys.size(); ++i) {
+    uint64_t key_num = NextTransactionKeyNum();
+    keys[i] = BuildKeyName(key_num);
   }
+  assert(read_all_fields());
+  std::vector<std::vector<DB::Field>> results(RW_KEYS_PER_OP);
+  return db.Read(table_name_, keys, NULL, results);
 }
 
 DB::Status CoreWorkload::TransactionReadModifyWrite(DB &db) {
-  uint64_t key_num = NextTransactionKeyNum();
-  const std::string key = BuildKeyName(key_num);
-  std::vector<DB::Field> result;
-
-  if (!read_all_fields()) {
-    std::vector<std::string> fields;
-    fields.push_back(NextFieldName());
-    db.Read(table_name_, key, &fields, result);
-  } else {
-    db.Read(table_name_, key, NULL, result);
+  std::vector<std::string> keys(RW_KEYS_PER_OP);
+  for (size_t i = 0; i<keys.size(); ++i) {
+    uint64_t key_num = NextTransactionKeyNum();
+    keys[i] = BuildKeyName(key_num);
   }
+  assert(read_all_fields());
+  std::vector<std::vector<DB::Field>> results;
 
-  std::vector<DB::Field> values;
-  if (write_all_fields()) {
-    BuildValues(values);
-  } else {
-    BuildSingleValue(values);
+  db.Read(table_name_, keys, NULL, results);
+
+  std::vector<std::vector<DB::Field>> values(RW_KEYS_PER_OP);
+  assert(write_all_fields());
+  for (size_t i = 0; i<values.size(); ++i) {
+    BuildValues(values[i]);
   }
-  return db.Update(table_name_, key, values);
+  return db.Update(table_name_, keys, values);
 }
 
 DB::Status CoreWorkload::TransactionScan(DB &db) {
@@ -332,15 +327,18 @@ DB::Status CoreWorkload::TransactionScan(DB &db) {
 }
 
 DB::Status CoreWorkload::TransactionUpdate(DB &db) {
-  uint64_t key_num = NextTransactionKeyNum();
-  const std::string key = BuildKeyName(key_num);
-  std::vector<DB::Field> values;
-  if (write_all_fields()) {
-    BuildValues(values);
-  } else {
-    BuildSingleValue(values);
+  std::vector<std::string> keys(RW_KEYS_PER_OP);
+  for (size_t i = 0; i<keys.size(); ++i) {
+    uint64_t key_num = NextTransactionKeyNum();
+    keys[i] = BuildKeyName(key_num);
   }
-  return db.Update(table_name_, key, values);
+  assert(read_all_fields());
+  std::vector<std::vector<DB::Field>> values(RW_KEYS_PER_OP);
+  assert(write_all_fields());
+  for (size_t i = 0; i<values.size(); ++i) {
+    BuildValues(values[i]);
+  }
+  return db.Update(table_name_, keys, values);
 }
 
 DB::Status CoreWorkload::TransactionInsert(DB &db) {

@@ -45,14 +45,14 @@ class DB {
   /// Field/value pairs from the result are stored in a vector.
   ///
   /// @param table The name of the table.
-  /// @param key The key of the record to read.
+  /// @param key The keys of the records to read.
   /// @param fields The list of fields to read, or NULL for all of them.
   /// @param result A vector of field/value pairs for the result.
   /// @return Zero on success, or a non-zero error code on error/record-miss.
   ///
-  virtual Status Read(const std::string &table, const std::string &key,
+  virtual Status Read(const std::string &table, const std::vector<std::string> &key,
                    const std::vector<std::string> *fields,
-                   std::vector<Field> &result) = 0;
+                   std::vector<std::vector<Field>> &result) = 0;
   ///
   /// Performs a range scan for a set of records in the database.
   /// Field/value pairs from the result are stored in a vector.
@@ -74,12 +74,12 @@ class DB {
   /// overwriting any existing values with the same field names.
   ///
   /// @param table The name of the table.
-  /// @param key The key of the record to write.
+  /// @param key The keys of the records to write.
   /// @param values A vector of field/value pairs to update in the record.
   /// @return Zero on success, a non-zero error code on error.
   ///
-  virtual Status Update(const std::string &table, const std::string &key,
-                     std::vector<Field> &values) = 0;
+  virtual Status Update(const std::string &table, const std::vector<std::string> &key,
+                     std::vector<std::vector<Field>> &values) = 0;
   ///
   /// Inserts a record into the database.
   /// Field/value pairs in the specified vector are written into the record.
@@ -91,14 +91,6 @@ class DB {
   ///
   virtual Status Insert(const std::string &table, const std::string &key,
                      std::vector<Field> &values) = 0;
-  ///
-  /// Deletes a record from the database.
-  ///
-  /// @param table The name of the table.
-  /// @param key The key of the record to delete.
-  /// @return Zero on success, a non-zero error code on error.
-  ///
-  virtual Status Delete(const std::string &table, const std::string &key) = 0;
 
   virtual ~DB() { }
 
