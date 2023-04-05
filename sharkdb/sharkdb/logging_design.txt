@@ -1,0 +1,8 @@
+
+Just a side note, make sure we don't hold namespace locks for too long- should be fine, what we are
+doing now, where we hold them during a R/W op?
+
+Problems with the current design:
+- We fsync on every operation
+
+Let's start by implementing RocksDB's 

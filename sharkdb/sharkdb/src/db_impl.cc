@@ -96,7 +96,6 @@ void sharkdb_multiwrite(sharkdb_p db, std::vector<const char*>& ks, std::vector<
 		assert(pthread_rwlock_rdlock(&p_db->partitions_[i].namespace_lock_) == 0);
 	}
 
-    //  In real version, we'll use io_uring to overlap latencies here.
     for (size_t i = 0; i<ks.size(); ++i) {
 		// fprintf(stderr, "Wrote i: %lu\n", i);
 		partition_t* part = get_partition(p_db, ks[i]);
@@ -113,14 +112,20 @@ void sharkdb_multiwrite(sharkdb_p db, std::vector<const char*>& ks, std::vector<
 		winfo.keys[0] = ks[i];
 		winfo.vals[0] = vs[i];
         log_write(&part->l0_->wal_, &winfo);
-		log_commit(&part->l0_->wal_);
+	}
 
-		// Now update in the memtable, if this wasn't an insert.
-		if (!r.second) {
-			r.first->second.v_ = vs[i];
-		}
+	for (size_t i = 0; i<N_PARTITIONS; ++i) {
+		log_commit(&p_db->partitions_[i].l0_->wal_);
+	}
 
-        assert(pthread_rwlock_unlock(&r.first->second.lock_) == 0);
+	for (size_t i = 0; i<ks.size(); ++i) {
+		partition_t* part = get_partition(p_db, ks[i]);
+		level_0_t::mem_table_t* mem_table = &part->l0_->mem_table_;
+        level_0_t::mem_table_t::iterator r = mem_table->find(ks[i]);
+
+		// Now update in the memtable, if this was an insert, a wasted write, who cares?
+		r->second.v_ = vs[i];
+        assert(pthread_rwlock_unlock(&r->second.lock_) == 0);
     }
 
 	for (size_t i = 0; i<N_PARTITIONS; ++i) {
