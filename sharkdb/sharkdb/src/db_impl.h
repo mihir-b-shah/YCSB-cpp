@@ -10,6 +10,7 @@
 #include "filter.h"
 #include "wal.h"
 
+#include <cstdlib>
 #include <cassert>
 #include <vector>
 #include <utility>
@@ -17,12 +18,6 @@
 #include <pthread.h>
 #include <errno.h>
 #include <tbb/concurrent_map.h>
-
-struct cmp_keys_lt {
-    bool operator()(const char* k1, const char* k2) const {
-        return memcmp(k1, k2, SHARKDB_KEY_BYTES) < 0;
-    }
-};
 
 struct fence_ptr_t {
     char k_[SHARKDB_KEY_BYTES];
@@ -33,13 +28,13 @@ struct fence_ptr_t {
 	} 
 };
 
-static constexpr size_t calc_n_blocks(size_t level) {
-    return MEM_TABLE_MAX_ENTRIES * GROWTH_POWERS[level] / N_ENTRIES_PER_BLOCK;
-}
+struct version_ptr_t {
+	uint32_t epoch_;
+	uint32_t buf_pos_;
 
-static constexpr size_t calc_n_filter_bits(size_t level) {
-    return calc_n_blocks(level) * FILTER_BITS_PER_BLOCK;
-}
+	// if epoch_ == 0, then doesn't matter what buf_pos_ is.
+	version_ptr_t() : epoch_(0), buf_pos_(0) {}
+};
 
 //  Let's keep functions free, just attach constructor/destructor.
 struct ss_table_t {
@@ -53,26 +48,39 @@ struct ss_table_t {
 };
 
 struct mem_entry_t {
-    // SplinterDB uses a distributed RW lock- maybe worth trying?
-    pthread_rwlock_t lock_;
+	//	Is a spinlock good idea? Maybe a cheaper mechanism?
+    pthread_spinlock_t lock_;
     const char* v_;
+	version_ptr_t p_ucommit_;
+	version_ptr_t p_commit_;
 
-    mem_entry_t(const char* v) : lock_(PTHREAD_RWLOCK_INITIALIZER), v_(v) {
-		assert(pthread_rwlock_wrlock(&lock_) == 0);
+    mem_entry_t(const char* v) : v_(v) {
+		assert(pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE) == 0);
+		assert(pthread_spin_lock(&lock_) == 0);
 	}
     ~mem_entry_t() {
-        assert(pthread_rwlock_destroy(&lock_) == 0);
+        assert(pthread_spin_destroy(&lock_) == 0);
     }
 };
 
-struct level_0_t {
-	typedef tbb::concurrent_map<const char*, mem_entry_t, cmp_keys_lt> mem_table_t;
+typedef tbb::concurrent_map<const char*, mem_entry_t, cmp_keys_lt> mem_table_t;
 
+struct level_0_t {
     mem_table_t mem_table_;
 	wal_t wal_;
 	size_t id_;
+	kv_pair_t* log_buffer_;
+	std::vector<sharkdb_cqev> tmp_cq_;
+	uint32_t buf_idx_;
 
-	level_0_t(size_t id) : mem_table_{cmp_keys_lt()}, id_(id) {}
+	level_0_t(size_t id) : mem_table_{cmp_keys_lt()}, id_(id), buf_idx_(0) {
+		void* buf_p;
+		posix_memalign(&buf_p, SECTOR_BYTES, sizeof(kv_pair_t)*LOG_BUF_MAX_ENTRIES);
+		log_buffer_ = (kv_pair_t*) buf_p;
+	}
+	~level_0_t() {
+		free(log_buffer_);
+	}
 };
 
 void* flush_thr_body(void* arg);
@@ -83,13 +91,13 @@ struct partition_t {
 	level_0_t* l0_swp_;
 	//	Keep level 0 empty to allow intuitive indices.
     std::vector<std::vector<ss_table_t*>> disk_levels_;
-
+	uint32_t epoch_;
 	pthread_t flush_thr_;
 	pthread_t compact_thr_;
 	pthread_rwlock_t namespace_lock_;
 	bool stop_flush_thr_;
 
-	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
+	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), epoch_(1), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
 		l0_ = new level_0_t(1);
 		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
 	}

@@ -16,8 +16,31 @@ It is obvious my system will get very poor R performance on a skewed dataset. Co
 same key. Then on every write in the current system, we will block readers. Suppose we have workload A
 from ycsb- this means for each log op, while we hold the lock, no reads will proceed.
 
-So how do we want to implement? Let's refactor YCSB-cpp to use multi-get ops. Done- although YCSB-cpp
-has some p significant overheads (due to all the string copying, etc)- I think it's mainly useful just
-as a comparison to LevelDB.
+-------------
+To implement
+-------------
 
+Write path:
+- write to log buffer
+	- no need for a separate logging thread. Just have a method, that the foreground threads run. The 
+	  critical thing is for it to be O(1).
+	- the l0 object should maintain a log buffer.
+	- how to manage the log buffer? we append to it to mirror what we will write to the WAL. However,
+	  for a heavy contention workload, just like the log-structured FS, lots of stuff will get
+	  overwritten, as such we will make poor use of the log_buffer. This allows using overwritten slots
+	  as extra cache space.
+- update memtable's mvcc data structure that points to the log buffer
+	- how should this be maintained? maintain an epoch number (rather than a full timestamp).
+	  for any key, I need to maintain two things- a pointer to the last committed state, and to
+	  the last un-committed state.
+	- suppose a read comes in. At that point, it should use the "last committed state" pointer. Once
+	  there, it has a pointer directly to the log buffer, which is live until mem-table flush- regardless
+	  of future writes that come in.
+	- suppose a write comes in. If there is a current un-committed write, just replace it, nobody can
+	  read it anyway. 
+- push completion event into the private queue
+	- maintain a private queue where we write completions.
+
+Read path
+- sync for now
 

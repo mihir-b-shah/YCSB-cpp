@@ -15,6 +15,8 @@
 	with the way they've impl'ed it. */
 
 typedef int sharkdb_cqev;
+static constexpr sharkdb_cqev SHARKDB_CQEV_FAIL = -1;
+
 struct sharkdb_t {
 	void* db_impl_;
 	sharkdb_cqev next_cqev_;

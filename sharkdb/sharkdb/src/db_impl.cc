@@ -44,7 +44,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	sharkdb_cqev cqev = db->next_cqev_++;
 
 	assert(pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
-	level_0_t::mem_table_t::iterator it = part->l0_->mem_table_.find(k);
+	mem_table_t::iterator it = part->l0_->mem_table_.find(k);
 	if (it != part->l0_->mem_table_.end()) {
 		assert(pthread_rwlock_rdlock(&it->second.lock_) == 0);
 		memcpy(fill_v, (char*) it->second.v_, SHARKDB_VAL_BYTES);
@@ -93,37 +93,38 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	return cqev;
 }
 
-/*  XXX if we use std::string's, we can do std::string v2 = std::move(v) to get zero-copy.
-    Also, who cares- we're writing them to the *log* anyway?- scatter-gathering from here
-    feels sketchy... */
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
     db_t* p_db = (db_t*) db->db_impl_;
 	sharkdb_cqev cqev = db->next_cqev_++;
 
 	partition_t* part = get_partition(p_db, k);
-	level_0_t::mem_table_t* mem_table = &part->l0_->mem_table_;
 	assert(pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
 
-	//	TODO copy v in!!
-	std::pair<level_0_t::mem_table_t::iterator, bool> r = mem_table->emplace(k, v);
+	mem_table_t* mem_table = &part->l0_->mem_table_;
+	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->buf_idx_, 1, __ATOMIC_RELAXED);
+	assert(buf_spot <= LOG_BUF_MAX_ENTRIES);
+	kv_pair_t* kv_fill = &part->l0_->log_buffer_[buf_spot];
+
+	// added to in-memory log.
+	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
+	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
+
+	std::pair<mem_table_t::iterator, bool> r = mem_table->emplace(&kv_fill->key[0], &kv_fill->val[0]);
 	if (!r.second) {
 		// already existed, need to lock.
-		assert(pthread_rwlock_wrlock(&r.first->second.lock_) == 0);
+		assert(pthread_spin_lock(&r.first->second.lock_) == 0);
 	}
 
-	// First WAL log it.
-	wal_block_winfo_t winfo;
-	winfo.keys[0] = k;
-	winfo.vals[0] = v;
-	log_write(&part->l0_->wal_, &winfo);
-	log_commit(&part->l0_->wal_);
+	// update ptrs to in-memory log-structured data.
+	mem_entry_t& entry = r.first->second;
+	if (entry.p_ucommit.epoch_ != 0 && entry.p_ucommit_.epoch_ < part->epoch_) {
+		entry.p_commit_ = entry.p_ucommit_;
+	}
+	entry.p_ucommit.epoch_ = part->epoch_;
+	entry.p_ucommit.buf_pos_ = buf_spot;
 
-	// Now update in the memtable, if this was an insert, a wasted write, who cares?
-	r.first->second.v_ = v;
-	assert(pthread_rwlock_unlock(&r.first->second.lock_) == 0);
 	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
-
-	db->cq_.emplace(cqev);
+	part->l0_->tmp_cq_.emplace(cqev);
 	return cqev;
 }
 

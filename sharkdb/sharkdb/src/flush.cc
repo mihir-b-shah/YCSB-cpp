@@ -42,7 +42,7 @@ void* flush_thr_body(void* arg) {
 			ss_table_t* ss_table = new ss_table_t(1);
 			ss_table->fd_ = open(ss_table_path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
 
-			level_0_t::mem_table_t* mem_table = &l0_flush->mem_table_;
+			mem_table_t* mem_table = &l0_flush->mem_table_;
 
 			size_t entries_wr = 0;
 			for (auto it = mem_table->begin(); it != mem_table->end(); ++it) {
