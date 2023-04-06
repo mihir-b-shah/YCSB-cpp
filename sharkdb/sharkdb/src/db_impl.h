@@ -15,6 +15,7 @@
 #include <utility>
 #include <cstring>
 #include <pthread.h>
+#include <errno.h>
 #include <tbb/concurrent_map.h>
 
 struct cmp_keys_lt {
@@ -88,7 +89,7 @@ struct partition_t {
 	pthread_rwlock_t namespace_lock_;
 	bool stop_flush_thr_;
 
-	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), disk_levels_(1+N_DISK_LEVELS), stop_flush_thr_(false) {
+	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
 		l0_ = new level_0_t(1);
 		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
 	}

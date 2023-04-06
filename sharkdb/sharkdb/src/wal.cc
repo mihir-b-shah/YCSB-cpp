@@ -23,15 +23,14 @@ static void close_wals() {
 	}
 }
 
-__attribute__((constructor))
-static void open_wals() {
+void setup_logs() {
 	atexit(close_wals);
 	for (size_t i = 0; i<2*N_PARTITIONS; ++i) {
 		char path[40];
 		sprintf(&path[0], "/tmp/sharkdb/wal_%lu", i);
 		//	TODO fallocate here?
 		//	TODO O_DIRECT here?
-		wal_fds[i] = open((const char*) path, O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR);
+		wal_fds[i] = open((const char*) path, O_CREAT | O_APPEND | O_WRONLY, S_IWUSR);
 		assert(wal_fds[i] >= 0);
 	}
 }
@@ -43,6 +42,7 @@ wal_t::wal_t() {
 			break;
 		}
 	}
+	assert(i < 2*N_PARTITIONS);
 	fd_ = wal_fds[i];
 	fd_array_idx_ = i;
 	assert(lseek(fd_, 0, SEEK_SET) == 0);
@@ -52,7 +52,6 @@ wal_t::wal_t() {
 
 wal_t::~wal_t() {
 	free(zero_padding_);
-	printf("Called destructor.\n");
 	wal_fds[fd_array_idx_] = fd_;
 }
 

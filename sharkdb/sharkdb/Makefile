@@ -1,4 +1,4 @@
-FLAGS=-g -O2 #-fsanitize=address -fsanitize=undefined #-DNDEBUG
+FLAGS=-g -O0 -Wall -Werror -fsanitize=address -fsanitize=undefined #-DNDEBUG
 O_FILES=$(patsubst src/%.cc,build/%.o,$(wildcard src/*.cc))
 TESTS=$(patsubst tests/%.cc,build/%.run,$(wildcard tests/*.cc))
 BENCHS=$(patsubst bench/%.cc,bench/%.run,$(wildcard bench/*.cc))

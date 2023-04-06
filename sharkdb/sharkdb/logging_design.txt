@@ -16,5 +16,8 @@ It is obvious my system will get very poor R performance on a skewed dataset. Co
 same key. Then on every write in the current system, we will block readers. Suppose we have workload A
 from ycsb- this means for each log op, while we hold the lock, no reads will proceed.
 
-So how do we want to implement? Let's refactor YCSB-cpp to use multi-get ops. We'll worry about
-LevelDB later, and measure performance.
+So how do we want to implement? Let's refactor YCSB-cpp to use multi-get ops. Done- although YCSB-cpp
+has some p significant overheads (due to all the string copying, etc)- I think it's mainly useful just
+as a comparison to LevelDB.
+
+

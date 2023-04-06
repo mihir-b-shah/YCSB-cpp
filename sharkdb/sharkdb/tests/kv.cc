@@ -6,22 +6,21 @@
 #include <cstdlib>
 
 int main() {
-    sharkdb_p p_db = sharkdb_init();
-    std::vector<const char*> ks = {"user01234567890123456789"};
+    sharkdb_t* p_db = sharkdb_init();
+
+	const char* k = "user01234567890123456789";
 	void* v = malloc(1000);
 	char* vc = (char*) v;
 	for (size_t i = 0; i<1000; ++i) {
 		vc[i] = 'A';
 	}
+	char buf[1000];
+	sharkdb_write_async(p_db, k, vc);
 
-    std::vector<const char*> vs = {(const char*) v};
-    std::vector<char*> vs_rd = {nullptr};
-
-	sharkdb_multiwrite(p_db, ks, vs);
-    sharkdb_multiread(p_db, ks, vs_rd);
+    sharkdb_read_async(p_db, k, &buf[0]);
 
 	for (size_t i = 0; i<1000; ++i) {
-		assert(vs[0][i] == vs_rd[0][i]);
+		assert(vc[i] == buf[i]);
 	}
 
     sharkdb_free(p_db);
