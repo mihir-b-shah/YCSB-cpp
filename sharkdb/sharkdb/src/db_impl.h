@@ -29,11 +29,11 @@ struct fence_ptr_t {
 };
 
 struct version_ptr_t {
-	uint32_t epoch_;
+	uint32_t lclk_;
 	uint32_t buf_pos_;
 
-	// if epoch_ == 0, then doesn't matter what buf_pos_ is.
-	version_ptr_t() : epoch_(0), buf_pos_(0) {}
+	// if lclk_ == 0, then doesn't matter what buf_pos_ is.
+	version_ptr_t() : lclk_(0), buf_pos_(0) {}
 };
 
 //  Let's keep functions free, just attach constructor/destructor.
@@ -91,13 +91,15 @@ struct partition_t {
 	level_0_t* l0_swp_;
 	//	Keep level 0 empty to allow intuitive indices.
     std::vector<std::vector<ss_table_t*>> disk_levels_;
-	uint32_t epoch_;
+	// inclusive- i.e. lclk_visible_ == 1 means all lclk <= 1 are visible.
+	uint64_t lclk_visible_;
+	uint64_t lclk_next_;
 	pthread_t flush_thr_;
 	pthread_t compact_thr_;
 	pthread_rwlock_t namespace_lock_;
 	bool stop_flush_thr_;
 
-	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), epoch_(1), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
+	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
 		l0_ = new level_0_t(1);
 		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
 	}

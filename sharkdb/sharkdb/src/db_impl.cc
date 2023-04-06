@@ -99,15 +99,14 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	partition_t* part = get_partition(p_db, k);
 	assert(pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+	// TODO Can I get away with relaxed atomic here?
+	uint64_t my_lclk = __atomic_fetch_add(&part->lclk_next_, 1, __ATOMIC_SEQ_CST);
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
-	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->buf_idx_, 1, __ATOMIC_RELAXED);
+	// TODO Can I get away with relaxed atomic here? probably?
+	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->buf_idx_, 1, __ATOMIC_SEQ_CST);
 	assert(buf_spot <= LOG_BUF_MAX_ENTRIES);
 	kv_pair_t* kv_fill = &part->l0_->log_buffer_[buf_spot];
-
-	// added to in-memory log.
-	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
-	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
 	std::pair<mem_table_t::iterator, bool> r = mem_table->emplace(&kv_fill->key[0], &kv_fill->val[0]);
 	if (!r.second) {
@@ -117,11 +116,16 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	// update ptrs to in-memory log-structured data.
 	mem_entry_t& entry = r.first->second;
-	if (entry.p_ucommit.epoch_ != 0 && entry.p_ucommit_.epoch_ < part->epoch_) {
+	if (entry.p_ucommit.lclk_ != 0 && entry.p_ucommit_.lclk_ <= part->lclk_visible_) {
 		entry.p_commit_ = entry.p_ucommit_;
 	}
-	entry.p_ucommit.epoch_ = part->epoch_;
+	entry.p_ucommit.lclk_ = my_lclk;
 	entry.p_ucommit.buf_pos_ = buf_spot;
+	assert(pthread_spin_unlock(&r.first->second.lock_) == 0);
+
+	// got a slot in the in-memory log earlier, do the memcpy outside locked region.
+	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
+	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
 	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
 	part->l0_->tmp_cq_.emplace(cqev);
