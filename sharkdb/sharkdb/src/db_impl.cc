@@ -109,7 +109,10 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	// TODO Can I get away with relaxed atomic here? probably?
 	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->buf_idx_, 1, __ATOMIC_SEQ_CST);
 	assert(buf_spot <= LOG_BUF_MAX_ENTRIES);
+
 	kv_pair_t* kv_fill = &part->l0_->log_buffer_[buf_spot];
+	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
+	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
 	std::pair<mem_table_t::iterator, bool> r = mem_table->emplace(&kv_fill->key[0], &kv_fill->val[0]);
 	if (!r.second) {
@@ -125,10 +128,6 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	entry.p_ucommit_.lclk_ = my_lclk;
 	entry.p_ucommit_.buf_pos_ = buf_spot;
 	assert(pthread_spin_unlock(&r.first->second.lock_) == 0);
-
-	// got a slot in the in-memory log earlier, do the memcpy outside locked region.
-	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
-	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
 	cq_t* cq = (cq_t*) db->cq_impl_;
 	cq->emplace(part, my_lclk, cqev);
