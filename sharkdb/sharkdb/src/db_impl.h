@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <vector>
+#include <queue>
 #include <utility>
 #include <cstring>
 #include <pthread.h>
@@ -29,7 +30,7 @@ struct fence_ptr_t {
 };
 
 struct version_ptr_t {
-	uint32_t lclk_;
+	uint64_t lclk_;
 	uint32_t buf_pos_;
 
 	// if lclk_ == 0, then doesn't matter what buf_pos_ is.
@@ -70,7 +71,6 @@ struct level_0_t {
 	wal_t wal_;
 	size_t id_;
 	kv_pair_t* log_buffer_;
-	std::vector<sharkdb_cqev> tmp_cq_;
 	uint32_t buf_idx_;
 
 	level_0_t(size_t id) : mem_table_{cmp_keys_lt()}, id_(id), buf_idx_(0) {
@@ -95,7 +95,6 @@ struct partition_t {
 	uint64_t lclk_visible_;
 	uint64_t lclk_next_;
 	pthread_t flush_thr_;
-	pthread_t compact_thr_;
 	pthread_rwlock_t namespace_lock_;
 	bool stop_flush_thr_;
 
@@ -122,8 +121,11 @@ struct partition_t {
 	}
 };
 
+void* io_mgmt_thr_body(void* arg);
+
 struct db_t {
 	std::vector<partition_t> partitions_;
+	pthread_t io_mgmt_thr_;
 
 	db_t() {
 		//	Necessary, since we're not implementing rule of 5...
@@ -131,9 +133,20 @@ struct db_t {
 		for (size_t i = 0; i<N_PARTITIONS; ++i) {
 			partitions_.emplace_back(i);
 		}
+		assert(pthread_create(&io_mgmt_thr_, nullptr, io_mgmt_thr_body, this) == 0);
 	}
 
 	~db_t() {}
 };
+
+struct cqe_t {
+	partition_t* part_;
+	uint64_t lclk_visible_;
+	sharkdb_cqev ev_;
+
+	cqe_t(partition_t* part, uint64_t lclk, sharkdb_cqev ev) 
+		: part_(part), lclk_visible_(lclk), ev_(ev) {}
+};
+typedef std::queue<cqe_t> cq_t;
 
 #endif

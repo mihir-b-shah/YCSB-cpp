@@ -2,7 +2,10 @@
 #ifndef _CONSTS_H_
 #define _CONSTS_H_
 
+#include "sharkdb.h"
+
 #include <cstddef>
+#include <cstring>
 
 static constexpr size_t N_ENTRIES_PER_BLOCK = 1;
 static constexpr size_t MEM_TABLE_FULL_THR = 90;

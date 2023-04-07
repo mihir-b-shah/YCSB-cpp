@@ -4,9 +4,7 @@
 
 #include <cstddef>
 #include <vector>
-#include <queue>
 #include <unordered_map>
-#include <utility>
 
 #define SHARKDB_KEY_BYTES 24
 #define SHARKDB_VAL_BYTES 1000
@@ -21,15 +19,16 @@ struct sharkdb_t {
 	void* db_impl_;
 	sharkdb_cqev next_cqev_;
 	std::unordered_map<sharkdb_cqev, char*> bufs_;
-	std::queue<sharkdb_cqev> cq_;
+	void* cq_impl_;
 
-	sharkdb_t(void* impl) : db_impl_(impl), next_cqev_(0) {}
+	sharkdb_t(void* db_impl, void* cq_impl) : db_impl_(db_impl), next_cqev_(0), cq_impl_(cq_impl) {}
 };
 
 // maybe add return codes later?
 sharkdb_t* sharkdb_init();
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* v);
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v);
+sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db);
 void sharkdb_free(sharkdb_t* db);
 
 #endif

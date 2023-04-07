@@ -24,7 +24,7 @@ sharkdb_t* sharkdb_init() {
 		setup_logs();
 		db_instance = new db_t();
 	});
-    return new sharkdb_t(db_instance);
+    return new sharkdb_t(db_instance, new cq_t());
 }
 
 //	Assume k is in the form 'user[0-9]+'
@@ -39,6 +39,7 @@ static partition_t* get_partition(db_t* db, const char* k) {
 }
 
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
+	/*
     db_t* p_db = (db_t*) db->db_impl_;
 	partition_t* part = get_partition(p_db, k);
 	sharkdb_cqev cqev = db->next_cqev_++;
@@ -48,7 +49,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	if (it != part->l0_->mem_table_.end()) {
 		assert(pthread_rwlock_rdlock(&it->second.lock_) == 0);
 		memcpy(fill_v, (char*) it->second.v_, SHARKDB_VAL_BYTES);
-		db->cq_.emplace(cqev);
+		db->cq_impl_->emplace(cqev);
 		assert(pthread_rwlock_unlock(&it->second.lock_) == 0);
 		return cqev;
 	}
@@ -69,8 +70,8 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 				size_t blk_range_start = it->blk_num_;
 				assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
 
-				/*	Fence pointers are good enough to store for <10 blocks at a time. As such,
-					just linearly stream the blocks in. */
+				//	Fence pointers are good enough to store for <10 blocks at a time. As such,
+				//	just linearly stream the blocks in.
 				assert(pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start) == BLOCK_BYTES*BLOCKS_PER_FENCE);
 
 				for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
@@ -88,9 +89,11 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
 	search_done:
 	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
-	db->cq_.emplace(cqev);
+	db->cq_impl->emplace(cqev);
 	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
 	return cqev;
+	*/
+	return SHARKDB_CQEV_FAIL;
 }
 
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
@@ -116,22 +119,32 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	// update ptrs to in-memory log-structured data.
 	mem_entry_t& entry = r.first->second;
-	if (entry.p_ucommit.lclk_ != 0 && entry.p_ucommit_.lclk_ <= part->lclk_visible_) {
+	if (entry.p_ucommit_.lclk_ != 0 && entry.p_ucommit_.lclk_ <= part->lclk_visible_) {
 		entry.p_commit_ = entry.p_ucommit_;
 	}
-	entry.p_ucommit.lclk_ = my_lclk;
-	entry.p_ucommit.buf_pos_ = buf_spot;
+	entry.p_ucommit_.lclk_ = my_lclk;
+	entry.p_ucommit_.buf_pos_ = buf_spot;
 	assert(pthread_spin_unlock(&r.first->second.lock_) == 0);
 
 	// got a slot in the in-memory log earlier, do the memcpy outside locked region.
 	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
 	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
+	cq_t* cq = (cq_t*) db->cq_impl_;
+	cq->emplace(part, my_lclk, cqev);
+
 	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
-	part->l0_->tmp_cq_.emplace(cqev);
 	return cqev;
 }
 
+sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
+	cq_t* cq = (cq_t*) db->cq_impl_;
+	cqe_t& cqe = cq->front();
+	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
+}
+
+//	don't delete the database, maybe reference count it via a std::shared_ptr?
 void sharkdb_free(sharkdb_t* db) {
+	delete (cq_t*) db->cq_impl_;
 	delete db;
 }
