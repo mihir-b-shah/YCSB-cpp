@@ -8,7 +8,6 @@
 
 #include "consts.h"
 #include "filter.h"
-#include "wal.h"
 
 #include <cstdlib>
 #include <cassert>
@@ -18,7 +17,22 @@
 #include <cstring>
 #include <pthread.h>
 #include <errno.h>
+#include <liburing.h>
 #include <tbb/concurrent_map.h>
+
+struct db_t;
+
+struct wal_t {
+	int idx_;
+    int fd_;
+	kv_pair_t* log_buffer_;
+	uint32_t buf_p_ucommit_;
+	uint32_t buf_p_commit_;
+    db_t* db_ref_;
+
+    wal_t(db_t* ref);
+    ~wal_t();
+};
 
 struct fence_ptr_t {
     char k_[SHARKDB_KEY_BYTES];
@@ -56,11 +70,15 @@ struct mem_entry_t {
 	version_ptr_t p_commit_;
 
     mem_entry_t(const char* v) : v_(v) {
-		assert(pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE) == 0);
-		assert(pthread_spin_lock(&lock_) == 0);
+        int rc;
+	    rc = pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE);
+        assert(rc == 0);
+		rc = pthread_spin_lock(&lock_);
+        assert(rc == 0);
 	}
     ~mem_entry_t() {
-        assert(pthread_spin_destroy(&lock_) == 0);
+        int rc = pthread_spin_destroy(&lock_);
+        assert(rc == 0);
     }
 };
 
@@ -70,17 +88,10 @@ struct level_0_t {
     mem_table_t mem_table_;
 	wal_t wal_;
 	size_t id_;
-	kv_pair_t* log_buffer_;
-	uint32_t buf_idx_;
+    db_t* db_ref_;
 
-	level_0_t(size_t id) : mem_table_{cmp_keys_lt()}, id_(id), buf_idx_(0) {
-		void* buf_p;
-		posix_memalign(&buf_p, SECTOR_BYTES, sizeof(kv_pair_t)*LOG_BUF_MAX_ENTRIES);
-		log_buffer_ = (kv_pair_t*) buf_p;
-	}
-	~level_0_t() {
-		free(log_buffer_);
-	}
+	level_0_t(size_t id, db_t* ref) : mem_table_{cmp_keys_lt()}, wal_(ref), id_(id), db_ref_(ref) {}
+	~level_0_t() {}
 };
 
 void* flush_thr_body(void* arg);
@@ -95,18 +106,31 @@ struct partition_t {
 	uint64_t lclk_visible_;
 	uint64_t lclk_next_;
 	pthread_t flush_thr_;
-	pthread_rwlock_t namespace_lock_;
 	bool stop_flush_thr_;
+	pthread_rwlock_t namespace_lock_;
+    pthread_rwlockattr_t namespace_lock_attrs_;
+    db_t* db_ref_;
 
-	partition_t(size_t tid) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), namespace_lock_(PTHREAD_RWLOCK_INITIALIZER), stop_flush_thr_(false) {
-		l0_ = new level_0_t(1);
-		assert(pthread_create(&flush_thr_, nullptr, flush_thr_body, this) == 0);
+	partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), stop_flush_thr_(false), db_ref_(ref) {
+        int rc;
+		l0_ = new level_0_t(1, db_ref_);
+        /*  Tells pthread we don't recursively acquire read lock, and to give writers priority (since
+            this is a queued lock (I think?). This should prevent livelock of the flushing thread */
+        rc = pthread_rwlockattr_setkind_np(&namespace_lock_attrs_, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+        assert(rc == 0);
+
+        rc = pthread_rwlock_init(&namespace_lock_, &namespace_lock_attrs_);
+        assert(rc == 0);
+
+		rc = pthread_create(&flush_thr_, nullptr, flush_thr_body, this);
+        assert(rc == 0);
 	}
     ~partition_t() {
 		stop_flush_thr_ = true;
 
 		void* res;
-		assert(pthread_join(flush_thr_, &res) == 0);
+		int rc = pthread_join(flush_thr_, &res);
+        assert(rc == 0);
 		__sync_synchronize();
 
 		delete l0_;
@@ -121,22 +145,42 @@ struct partition_t {
 	}
 };
 
+struct wal_resources_t {
+    int wal_fds_[N_PARTITIONS * 2];
+    kv_pair_t* log_buffers_[N_PARTITIONS * 2];
+    pthread_spinlock_t wal_assn_lock_;
+    io_uring log_ring_;
+
+    wal_resources_t();
+    ~wal_resources_t();
+};
+
 void* io_mgmt_thr_body(void* arg);
 
 struct db_t {
+    /*  Important wal_resources_ is constructed before partitions_, and destructed afterward-
+        as such, by C++ spec, we place it before partitions_ */
+    wal_resources_t wal_resources_;
 	std::vector<partition_t> partitions_;
 	pthread_t io_mgmt_thr_;
+	bool stop_io_thr_;
 
-	db_t() {
+	db_t() : stop_io_thr_(false) {
 		//	Necessary, since we're not implementing rule of 5...
 		partitions_.reserve(N_PARTITIONS);
 		for (size_t i = 0; i<N_PARTITIONS; ++i) {
-			partitions_.emplace_back(i);
+			partitions_.emplace_back(i, this);
 		}
-		assert(pthread_create(&io_mgmt_thr_, nullptr, io_mgmt_thr_body, this) == 0);
+		int rc = pthread_create(&io_mgmt_thr_, nullptr, io_mgmt_thr_body, this);
+        assert(rc == 0);
 	}
 
-	~db_t() {}
+	~db_t() {
+        stop_io_thr_ = true;
+        void* res;
+		int rc = pthread_join(io_mgmt_thr_, &res);
+        assert(rc == 0);
+    }
 };
 
 struct cqe_t {

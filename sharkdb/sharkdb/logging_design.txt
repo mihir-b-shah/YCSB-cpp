@@ -44,3 +44,35 @@ Write path:
 Read path
 - sync for now
 
+Sources of I/O (all separate rings)
+- log writes/fsync- this one doesn't need polling.
+- block reads- lots of I/O- possibly interdependent- interesting question on how to implement-
+    do we readahead 2 blocks, or just do one at a time, etc? Effect on i/o queues, etc? SQ/CQ
+    ops should be vv fast, i.e. polled. 
+- flush to sstable -> separate ring- this is less latency critical, but nevertheless polled I/O
+    might be nice. Note this is a completely different situation than block reads, though.
+
+Async operation:
+- Note there were 3 phases to deleting a full memtable.
+(1) memtable is W mode by users, - by flush thread.
+(2) memtable is swapped out- and not modified more- by the user, and we start flushing it to disk.
+(3) memtable swp read-only version for users is removed, and the finished SSTable is made visible.
+
+Now there is a catch- we want to wait for all operations to complete on the memtable before we start
+flushing it. (This is not strictly necessary, we could perhaps overlap certain things, but for simplicity
+let's just do this). So after we swap out the memtable, no NEW user ops should be able to use the memtable
+for anything- it will just be the existing I/O on the memtable resolving. As such, we must wait for all
+such I/O to resolve. What kinds of I/O can this be?
+- None at all! All memtable writes happen synchronously- as do all memtable reads.
+
+What about log writes- when we swap a l0 object out, the wal switches too. But this means any pending
+fsyncs and log writes can just happen, and they'll be absorbed by the swapped out WAL (since no one
+is using it). This is due to a quirk in our impl, that probably wastes a good deal of SSD space, but
+for now it's probably fine.
+
+What does the io_mgmt thread look like?
+- Maintain an io_ring for 2 different tasks- log-flushing and reads.
+- At the start of every loop, just check if there are logs to flush, and do it. It is very simple,
+    I don't need a polling thread for it, etc. Of course, also check the CQ for that ring to see
+    if anything resolved.
+- Now the real fun- the read io_ring.

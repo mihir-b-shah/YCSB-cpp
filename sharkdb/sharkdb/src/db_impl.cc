@@ -12,7 +12,6 @@
 thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
 
 static db_t* db_instance = nullptr;
-
 static void free_db_instance() {
 	delete db_instance;
 }
@@ -21,7 +20,6 @@ static std::once_flag init_flag;
 sharkdb_t* sharkdb_init() {
 	std::call_once(init_flag, [&](){
 		atexit(free_db_instance);
-		setup_logs();
 		db_instance = new db_t();
 	});
     return new sharkdb_t(db_instance, new cq_t());
@@ -40,17 +38,25 @@ static partition_t* get_partition(db_t* db, const char* k) {
 
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	/*
+    int rc;
+
     db_t* p_db = (db_t*) db->db_impl_;
 	partition_t* part = get_partition(p_db, k);
 	sharkdb_cqev cqev = db->next_cqev_++;
 
-	assert(pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+	rc = pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+    assert(rc == 0);
+
 	mem_table_t::iterator it = part->l0_->mem_table_.find(k);
 	if (it != part->l0_->mem_table_.end()) {
-		assert(pthread_rwlock_rdlock(&it->second.lock_) == 0);
+		rc = pthread_rwlock_rdlock(&it->second.lock_);
+        assert(rc == 0);
+
 		memcpy(fill_v, (char*) it->second.v_, SHARKDB_VAL_BYTES);
 		db->cq_impl_->emplace(cqev);
-		assert(pthread_rwlock_unlock(&it->second.lock_) == 0);
+
+		rc = pthread_rwlock_unlock(&it->second.lock_);
+        assert(rc == 0);
 		return cqev;
 	}
 
@@ -72,7 +78,8 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
 				//	Fence pointers are good enough to store for <10 blocks at a time. As such,
 				//	just linearly stream the blocks in.
-				assert(pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start) == BLOCK_BYTES*BLOCKS_PER_FENCE);
+				rc = pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start);
+                assert(rc == BLOCK_BYTES*BLOCKS_PER_FENCE);
 
 				for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
 					for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
@@ -88,7 +95,8 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	}
 
 	search_done:
-	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
+	rc = pthread_rwlock_unlock(&part->namespace_lock_);
+    assert(rc == 0);
 	db->cq_impl->emplace(cqev);
 	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
 	return cqev;
@@ -99,25 +107,29 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
     db_t* p_db = (db_t*) db->db_impl_;
 	sharkdb_cqev cqev = db->next_cqev_++;
+    int rc;
 
 	partition_t* part = get_partition(p_db, k);
-	assert(pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+    assert(rc == 0);
+
 	// TODO Can I get away with relaxed atomic here?
 	uint64_t my_lclk = __atomic_fetch_add(&part->lclk_next_, 1, __ATOMIC_SEQ_CST);
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
 	// TODO Can I get away with relaxed atomic here? probably?
-	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->buf_idx_, 1, __ATOMIC_SEQ_CST);
-	assert(buf_spot <= LOG_BUF_MAX_ENTRIES);
+	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->wal_.buf_p_ucommit_, 1, __ATOMIC_SEQ_CST);
+	assert(buf_spot < LOG_BUF_MAX_ENTRIES);
 
-	kv_pair_t* kv_fill = &part->l0_->log_buffer_[buf_spot];
+	kv_pair_t* kv_fill = &part->l0_->wal_.log_buffer_[buf_spot];
 	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
 	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
 
 	std::pair<mem_table_t::iterator, bool> r = mem_table->emplace(&kv_fill->key[0], &kv_fill->val[0]);
 	if (!r.second) {
 		// already existed, need to lock.
-		assert(pthread_spin_lock(&r.first->second.lock_) == 0);
+		rc = pthread_spin_lock(&r.first->second.lock_);
+        assert(rc == 0);
 	}
 
 	// update ptrs to in-memory log-structured data.
@@ -127,12 +139,14 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	}
 	entry.p_ucommit_.lclk_ = my_lclk;
 	entry.p_ucommit_.buf_pos_ = buf_spot;
-	assert(pthread_spin_unlock(&r.first->second.lock_) == 0);
+	rc = pthread_spin_unlock(&r.first->second.lock_);
+    assert(rc == 0);
 
 	cq_t* cq = (cq_t*) db->cq_impl_;
 	cq->emplace(part, my_lclk, cqev);
 
-	assert(pthread_rwlock_unlock(&part->namespace_lock_) == 0);
+	rc = pthread_rwlock_unlock(&part->namespace_lock_);
+    assert(rc == 0);
 	return cqev;
 }
 
