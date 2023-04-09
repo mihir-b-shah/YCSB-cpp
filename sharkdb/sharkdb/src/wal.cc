@@ -30,7 +30,7 @@ wal_resources_t::wal_resources_t() {
         assert(rc == 0);
 
         void* buf_p;
-        rc = posix_memalign(&buf_p, SECTOR_BYTES, log_size);
+        rc = posix_memalign(&buf_p, BLOCK_BYTES, log_size);
         assert(rc == 0);
         log_buffers_[i] = (struct iovec) {buf_p, log_size};
 	}
@@ -38,17 +38,6 @@ wal_resources_t::wal_resources_t() {
     //  TODO should we do fadvise for the log_ring?
     rc = io_uring_queue_init(16+2*N_PARTITIONS, &log_ring_, 0);
     assert(rc == 0);
-
-    /*  register log buffers/files with io_uring.
-        remember, log_buffers_, and wal_fds_, will be copied into the kernel,
-        so I can use these freely after these calls return*/
-
-    /*
-    rc = io_uring_register_buffers(&log_ring_, &log_buffers_[0], 2*N_PARTITIONS);
-    assert(rc == 0);
-    rc = io_uring_register_files(&log_ring_, &wal_fds_[0], 2*N_PARTITIONS);
-    assert(rc == 0);
-    */
 }
 
 wal_resources_t::~wal_resources_t() {
@@ -63,12 +52,6 @@ wal_resources_t::~wal_resources_t() {
 	    free((void*) log_buffers_[i].iov_base);
 	}
 
-    /*
-    rc = io_uring_unregister_files(&log_ring_);
-    assert(rc == 0);
-    rc = io_uring_unregister_buffers(&log_ring_);
-    assert(rc == 0);
-    */
     io_uring_queue_exit(&log_ring_);
 }
 
@@ -197,11 +180,8 @@ void* log_thr_body(void* arg) {
                     size_t len = (until - p_commit) * BLOCK_BYTES;
                     size_t f_offs = p_commit * BLOCK_BYTES;
 
-                    //  do flush of blocks from 
                     struct io_uring_sqe* sqe = io_uring_get_sqe(log_ring);
-                    //  io_uring_prep_write_fixed(sqe, reg_idx, p, len, f_offs, reg_idx);
                     io_uring_prep_write(sqe, part->l0_->wal_.fd_, p, len, f_offs);
-                    //  sqe->flags |= IOSQE_FIXED_FILE;
 
                     sync_state[i].valid_ = true;
                     sync_state[i].part_idx_ = i;

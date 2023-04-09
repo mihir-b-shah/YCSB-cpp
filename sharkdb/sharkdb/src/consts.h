@@ -11,7 +11,6 @@ static constexpr size_t N_ENTRIES_PER_BLOCK = 4;
 static constexpr size_t MEM_TABLE_FULL_THR = 90;
 static constexpr size_t N_DISK_LEVELS = 2;
 static constexpr size_t BLOCK_BYTES = 4096;
-static constexpr size_t SECTOR_BYTES = 512;
 static constexpr size_t FILTER_BITS_PER_BLOCK = 8;
 static constexpr size_t BLOCKS_PER_FENCE = 1;
 static constexpr size_t N_PARTITIONS = 2;
