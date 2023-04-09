@@ -138,72 +138,88 @@ void* log_thr_body(void* arg) {
     db_t* db = (db_t*) arg;
     struct io_uring* log_ring = &db->wal_resources_.log_ring_;
     sync_state_t sync_state[N_PARTITIONS];
+    bool do_backpressure = false;
+    bool did_backpressure_locks = false;
 
     while (!db->stop_log_thr_) {
-        for (size_t i = 0; i<N_PARTITIONS; ++i) {
-            partition_t* part = &db->partitions_[i];
-
-            rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-            assert(rc == 0);
-
-            //  check if we need to sync to log...
-            uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
-            if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_FLUSH_INTV) {
-                assert(!sync_state[i].valid_ && "Cannot keep up with writes.");
-
-                rc = pthread_rwlock_unlock(&part->namespace_lock_);
-                assert(rc == 0);
-
-                /*  Pthread rw lock cannot be upgraded, so release/try again.
-
-                    Acquiring the write lock is VERY convenient- it forces all reads
-                    to finish- meaning the buf_p_ucommit_ counter is consistent with
-                    the contents of the buffer- since the memcpy actions have happened,
-                    and by ACQ_REL semantics of a rdlock, they have been flushed to memory. */
-
-                rc = pthread_rwlock_wrlock(&part->namespace_lock_);
-                assert(rc == 0);
-                uint64_t lclk = part->lclk_next_;
-                uint32_t until = part->l0_->wal_.buf_p_ucommit_;
-                rc = pthread_rwlock_unlock(&part->namespace_lock_);
-                assert(rc == 0);
+        if (do_backpressure) {
+            if (!did_backpressure_locks) {
+                for (size_t i = 0; i<N_PARTITIONS; ++i) {
+                    partition_t* part = &db->partitions_[i];
+                    rc = pthread_rwlock_wrlock(&part->namespace_lock_);
+                    assert(rc == 0);
+                }
+                did_backpressure_locks = true;
+            }
+        } else {
+            for (size_t i = 0; i<N_PARTITIONS; ++i) {
+                partition_t* part = &db->partitions_[i];
 
                 rc = pthread_rwlock_rdlock(&part->namespace_lock_);
                 assert(rc == 0);
 
-                //  the index of file and buffer we want to write.
-                //  int reg_idx = part->l0_->wal_.idx_;
-                //  Ensure we only log whole blocks.
-                until /= N_ENTRIES_PER_BLOCK;
-                uint32_t p_commit = part->l0_->wal_.buf_p_commit_;
-                p_commit /= N_ENTRIES_PER_BLOCK; 
+                //  check if we need to sync to log...
+                uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
+                if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_FLUSH_INTV) {
+                    rc = pthread_rwlock_unlock(&part->namespace_lock_);
+                    assert(rc == 0);
 
-                char* p = (char*) &part->l0_->wal_.log_buffer_[p_commit];
-                size_t len = (until - p_commit) * BLOCK_BYTES;
-                size_t f_offs = p_commit * BLOCK_BYTES;
+                    if (sync_state[i].valid_) {
+                        do_backpressure = true;
+                        break;
+                    }
 
-                //  do flush of blocks from 
-                struct io_uring_sqe* sqe = io_uring_get_sqe(log_ring);
-                //  io_uring_prep_write_fixed(sqe, reg_idx, p, len, f_offs, reg_idx);
-                io_uring_prep_write(sqe, part->l0_->wal_.fd_, p, len, f_offs);
-                //  sqe->flags |= IOSQE_FIXED_FILE;
+                    /*  Pthread rw lock cannot be upgraded, so release/try again.
 
-                sync_state[i].valid_ = true;
-                sync_state[i].part_idx_ = i;
-                sync_state[i].l0_version_ = part->l0_->version_;
-                sync_state[i].new_lclk_visible_ = lclk-1;
-                io_uring_sqe_set_data(sqe, (void*) &sync_state[i]);
+                        Acquiring the write lock is VERY convenient- it forces all reads
+                        to finish- meaning the buf_p_ucommit_ counter is consistent with
+                        the contents of the buffer- since the memcpy actions have happened,
+                        and by ACQ_REL semantics of a rdlock, they have been flushed to memory. */
 
-                //  safe, since only this thread writes to this ring.
-                int n_submitted = io_uring_submit(log_ring);
-                assert(n_submitted == 1);
+                    rc = pthread_rwlock_wrlock(&part->namespace_lock_);
+                    assert(rc == 0);
+                    uint64_t lclk = part->lclk_next_;
+                    uint32_t until = part->l0_->wal_.buf_p_ucommit_;
+                    rc = pthread_rwlock_unlock(&part->namespace_lock_);
+                    assert(rc == 0);
 
-                //  advance p_commit now, so we can proceed...
-                part->l0_->wal_.buf_p_commit_ = until * N_ENTRIES_PER_BLOCK;
+                    rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+                    assert(rc == 0);
+
+                    //  the index of file and buffer we want to write.
+                    //  int reg_idx = part->l0_->wal_.idx_;
+                    //  Ensure we only log whole blocks.
+                    until /= N_ENTRIES_PER_BLOCK;
+                    uint32_t p_commit = part->l0_->wal_.buf_p_commit_;
+                    p_commit /= N_ENTRIES_PER_BLOCK; 
+
+                    char* p = (char*) &part->l0_->wal_.log_buffer_[p_commit];
+                    size_t len = (until - p_commit) * BLOCK_BYTES;
+                    size_t f_offs = p_commit * BLOCK_BYTES;
+
+                    //  do flush of blocks from 
+                    struct io_uring_sqe* sqe = io_uring_get_sqe(log_ring);
+                    //  io_uring_prep_write_fixed(sqe, reg_idx, p, len, f_offs, reg_idx);
+                    io_uring_prep_write(sqe, part->l0_->wal_.fd_, p, len, f_offs);
+                    //  sqe->flags |= IOSQE_FIXED_FILE;
+
+                    sync_state[i].valid_ = true;
+                    sync_state[i].part_idx_ = i;
+                    sync_state[i].l0_version_ = part->l0_->version_;
+                    sync_state[i].new_lclk_visible_ = lclk-1;
+                    io_uring_sqe_set_data(sqe, (void*) &sync_state[i]);
+
+                    //  safe, since only this thread writes to this ring.
+                    int n_submitted = io_uring_submit(log_ring);
+                    assert(n_submitted == 1);
+
+                    //  advance p_commit now, so we can proceed...
+                    part->l0_->wal_.buf_p_commit_ = until * N_ENTRIES_PER_BLOCK;
+                }
+
+                rc = pthread_rwlock_unlock(&part->namespace_lock_);
+                assert(rc == 0);
             }
-
-            rc = pthread_rwlock_unlock(&part->namespace_lock_);
-            assert(rc == 0);
         }
         
         //  this wastes CPU, ideally we would wait for a completion, but simpler.
@@ -212,22 +228,27 @@ void* log_thr_body(void* arg) {
         if (rc == 0) {
             /*  Do the following when we know a sync succeeded.
                 1) Check the l0/wal I am modifying is the same as the one that synced- by id.
-                2) Increment buf_p_commit_ on the wal.
-                3) Increment lclk_visible_ on the partition. */
+                2) Increment lclk_visible_ on the partition. */
             sync_state_t* state = (sync_state_t*) io_uring_cqe_get_data(cqe);
             assert(state->valid_);
 
             partition_t* part = &db->partitions_[state->part_idx_];
-            rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-            if (state->l0_version_ == part->l0_->version_) {
-                //  Only act if this is true.
-                part->lclk_visible_ = state->new_lclk_visible_;
-            }
-            rc = pthread_rwlock_unlock(&part->namespace_lock_);
+            part->lclk_visible_ = state->new_lclk_visible_;
 
             state->valid_ = false;
             fprintf(stderr, "sync finished.\n");
             io_uring_cqe_seen(log_ring, cqe);
+
+            if (do_backpressure) {
+                assert(did_backpressure_locks);
+                for (size_t i = 0; i<N_PARTITIONS; ++i) {
+                    partition_t* part = &db->partitions_[i];
+                    rc = pthread_rwlock_unlock(&part->namespace_lock_);
+                    assert(rc == 0);
+                }
+                did_backpressure_locks = false;
+                do_backpressure = false;
+            }
         } else {
             assert(rc == -EAGAIN);
         }
