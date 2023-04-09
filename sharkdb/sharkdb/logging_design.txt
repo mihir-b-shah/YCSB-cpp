@@ -76,3 +76,7 @@ What does the io_mgmt thread look like?
     I don't need a polling thread for it, etc. Of course, also check the CQ for that ring to see
     if anything resolved.
 - Now the real fun- the read io_ring.
+- This will used polled I/O- which creates a background kernel thread to listen for my submissions.
+    Look for SQPOLL for sq, IOPOLL for cq. There is also SQ_AFF to specify sq_thread_cpu, to tell kernel
+    which cpu to pin sq polling to. IOPOLL is only legal for O_DIRECT files, means I probably should
+    manage a user-space cache?

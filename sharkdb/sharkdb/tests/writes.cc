@@ -32,12 +32,14 @@ int main() {
 		vs_v.push_back((const char*) vc);
 	}
 
-	for (size_t i = 0; i<N_WRITES; ++i) {
-		if (i % 1000 == 0) {
-			printf("Writing %lu\n", i);
-		}
-		sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i]);
-	}
+    for (size_t T = 0; T<100; ++T) {
+        for (size_t i = 0; i<N_WRITES; ++i) {
+            if (i % 1000 == 0) {
+                printf("Writing %lu\n", i+T*N_WRITES);
+            }
+            sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i]);
+        }
+    }
 	printf("After multiwrite.\n");
 
     sharkdb_free(p_db);

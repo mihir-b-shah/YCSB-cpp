@@ -26,7 +26,7 @@ void* flush_thr_body(void* arg) {
 		/*	Safe to check outside, since small race in read is not a problem. Size is presumably
 			<64 bits, so reads are atomic. */
 		if (part->l0_->mem_table_.size() >= (MEM_TABLE_MAX_ENTRIES * MEM_TABLE_FULL_THR)/100) {
-			level_0_t* l0_new = new level_0_t(1+part->l0_->id_, part->db_ref_);
+			level_0_t* l0_new = new level_0_t(part->db_ref_);
 			level_0_t* l0_flush = part->l0_;
 
             /*  we can safely read l0_ before acquiring the lock here, since THIS THREAD is the only
@@ -57,6 +57,8 @@ void* flush_thr_body(void* arg) {
                 rc = write(ss_table->fd_, it->first, SHARKDB_KEY_BYTES);
                 assert(rc == SHARKDB_KEY_BYTES);
 				
+                /*  Completely ignore the version numbers- if it's in the memtable, flush it-
+                    since the sstable is now our persistence mechanism. */
                 rc = write(ss_table->fd_, it->second.v_, SHARKDB_VAL_BYTES);
                 assert(rc == SHARKDB_VAL_BYTES);
 

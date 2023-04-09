@@ -1,163 +1,76 @@
 
-#include <sharkdb.h>
 #include "db_impl.h"
 
-#include <string>
-#include <cstdlib>
-#include <thread>
+//  Just fill out constructors, etc. here from db_impl.h
 
-#include <liburing.h>
-#include <tbb/concurrent_map.h>
-
-thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
-
-static db_t* db_instance = nullptr;
-static void free_db_instance() {
-	delete db_instance;
+fence_ptr_t::fence_ptr_t(const char* k, size_t blk_num) : blk_num_(blk_num) {
+    memcpy(&k_[0], k, SHARKDB_KEY_BYTES);
 }
 
-static std::once_flag init_flag;
-sharkdb_t* sharkdb_init() {
-	std::call_once(init_flag, [&](){
-		atexit(free_db_instance);
-		db_instance = new db_t();
-	});
-    return new sharkdb_t(db_instance, new cq_t());
+mem_entry_t::mem_entry_t(const char* v) : v_(v) {
+    int rc;
+    rc = pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE);
+    assert(rc == 0);
+    rc = pthread_spin_lock(&lock_);
+    assert(rc == 0);
 }
 
-//	Assume k is in the form 'user[0-9]+'
-static partition_t* get_partition(db_t* db, const char* k) {
-	assert(memcmp(k, KEY_PREFIX, strlen(KEY_PREFIX)) == 0);
-	for (size_t i = 0; i<N_PARTITIONS; ++i) {
-		if (memcmp(k+strlen(KEY_PREFIX), ORDER_PREFIXES[i], strlen(ORDER_PREFIXES[0])) <= 0) {
-			return &db->partitions_[i];
-		}
-	}
-	assert(false && "Should have matched a memtable.");
+level_0_t::level_0_t(db_t* ref) : mem_table_{cmp_keys_lt()}, wal_(ref), db_ref_(ref) {
+    //  TODO do I need sequential consistency here?
+    version_ = __atomic_add_fetch(&db_ref_->l0_version_ctr_, 1, __ATOMIC_SEQ_CST);
 }
 
-sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
-	/*
+partition_t::partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), stop_flush_thr_(false), db_ref_(ref) {
     int rc;
 
-    db_t* p_db = (db_t*) db->db_impl_;
-	partition_t* part = get_partition(p_db, k);
-	sharkdb_cqev cqev = db->next_cqev_++;
-
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+    rc = pthread_spin_init(&lclk_lock_, PTHREAD_PROCESS_PRIVATE);
     assert(rc == 0);
 
-	mem_table_t::iterator it = part->l0_->mem_table_.find(k);
-	if (it != part->l0_->mem_table_.end()) {
-		rc = pthread_rwlock_rdlock(&it->second.lock_);
-        assert(rc == 0);
-
-		memcpy(fill_v, (char*) it->second.v_, SHARKDB_VAL_BYTES);
-		db->cq_impl_->emplace(cqev);
-
-		rc = pthread_rwlock_unlock(&it->second.lock_);
-        assert(rc == 0);
-		return cqev;
-	}
-
-	char* v_found = nullptr;
-	for (std::vector<ss_table_t*>& ss_level : part->disk_levels_) {
-		for (ss_table_t* ss_table : ss_level) {
-			if (ss_table->filter_.test(k)) {
-				// use fence pointers to find blocks to check.
-				fence_ptr_t dummy(k, 0);
-				auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
-					return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
-				});
-				//	because fence pointers are left-justified.
-				assert(it != ss_table->fence_ptrs_.begin());
-				size_t blk_range_end = it->blk_num_;
-				it--;
-				size_t blk_range_start = it->blk_num_;
-				assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
-
-				//	Fence pointers are good enough to store for <10 blocks at a time. As such,
-				//	just linearly stream the blocks in.
-				rc = pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start);
-                assert(rc == BLOCK_BYTES*BLOCKS_PER_FENCE);
-
-				for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
-					for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
-						char* kr = &pread_buf[b*BLOCK_BYTES + i*(SHARKDB_KEY_BYTES+SHARKDB_VAL_BYTES)];
-						if (memcmp(kr, k, SHARKDB_KEY_BYTES) == 0) {
-							v_found = kr+SHARKDB_KEY_BYTES;
-							goto search_done;
-						}
-					}
-				}
-			}
-		}
-	}
-
-	search_done:
-	rc = pthread_rwlock_unlock(&part->namespace_lock_);
+    l0_ = new level_0_t(db_ref_);
+    /*  Tells pthread we don't recursively acquire read lock, and to give writers priority (since
+        this is a queued lock (I think?). This should prevent livelock of the flushing thread */
+    rc = pthread_rwlockattr_setkind_np(&namespace_lock_attrs_, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
     assert(rc == 0);
-	db->cq_impl->emplace(cqev);
-	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
-	return cqev;
-	*/
-	return SHARKDB_CQEV_FAIL;
+
+    rc = pthread_rwlock_init(&namespace_lock_, &namespace_lock_attrs_);
+    assert(rc == 0);
+
+    rc = pthread_create(&flush_thr_, nullptr, flush_thr_body, this);
+    assert(rc == 0);
 }
 
-sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
-    db_t* p_db = (db_t*) db->db_impl_;
-	sharkdb_cqev cqev = db->next_cqev_++;
-    int rc;
+partition_t::~partition_t() {
+    stop_flush_thr_ = true;
 
-	partition_t* part = get_partition(p_db, k);
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+    void* res;
+    int rc = pthread_join(flush_thr_, &res);
     assert(rc == 0);
+    __sync_synchronize();
 
-	// TODO Can I get away with relaxed atomic here?
-	uint64_t my_lclk = __atomic_fetch_add(&part->lclk_next_, 1, __ATOMIC_SEQ_CST);
-
-	mem_table_t* mem_table = &part->l0_->mem_table_;
-	// TODO Can I get away with relaxed atomic here? probably?
-	uint32_t buf_spot = __atomic_fetch_add(&part->l0_->wal_.buf_p_ucommit_, 1, __ATOMIC_SEQ_CST);
-	assert(buf_spot < LOG_BUF_MAX_ENTRIES);
-
-	kv_pair_t* kv_fill = &part->l0_->wal_.log_buffer_[buf_spot];
-	memcpy(&kv_fill->key[0], k, SHARKDB_KEY_BYTES);
-	memcpy(&kv_fill->val[0], v, SHARKDB_VAL_BYTES);
-
-	std::pair<mem_table_t::iterator, bool> r = mem_table->emplace(&kv_fill->key[0], &kv_fill->val[0]);
-	if (!r.second) {
-		// already existed, need to lock.
-		rc = pthread_spin_lock(&r.first->second.lock_);
-        assert(rc == 0);
-	}
-
-	// update ptrs to in-memory log-structured data.
-	mem_entry_t& entry = r.first->second;
-	if (entry.p_ucommit_.lclk_ != 0 && entry.p_ucommit_.lclk_ <= part->lclk_visible_) {
-		entry.p_commit_ = entry.p_ucommit_;
-	}
-	entry.p_ucommit_.lclk_ = my_lclk;
-	entry.p_ucommit_.buf_pos_ = buf_spot;
-	rc = pthread_spin_unlock(&r.first->second.lock_);
-    assert(rc == 0);
-
-	cq_t* cq = (cq_t*) db->cq_impl_;
-	cq->emplace(part, my_lclk, cqev);
-
-	rc = pthread_rwlock_unlock(&part->namespace_lock_);
-    assert(rc == 0);
-	return cqev;
+    delete l0_;
+    if (l0_swp_ != nullptr) {
+        delete l0_swp_;
+    }
+    for (std::vector<ss_table_t*>& v : disk_levels_) {
+        for (ss_table_t* table : v) {
+            delete table;
+        }
+    }
 }
 
-sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
-	cq_t* cq = (cq_t*) db->cq_impl_;
-	cqe_t& cqe = cq->front();
-	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
+db_t::db_t() : stop_log_thr_(false), l0_version_ctr_(0) {
+    //	Necessary, since we're not implementing rule of 5...
+    partitions_.reserve(N_PARTITIONS);
+    for (size_t i = 0; i<N_PARTITIONS; ++i) {
+        partitions_.emplace_back(i, this);
+    }
+    int rc = pthread_create(&log_thr_, nullptr, log_thr_body, this);
+    assert(rc == 0);
 }
 
-//	don't delete the database, maybe reference count it via a std::shared_ptr?
-void sharkdb_free(sharkdb_t* db) {
-	delete (cq_t*) db->cq_impl_;
-	delete db;
+db_t::~db_t() {
+    stop_log_thr_ = true;
+    void* res;
+    int rc = pthread_join(log_thr_, &res);
+    assert(rc == 0);
 }
