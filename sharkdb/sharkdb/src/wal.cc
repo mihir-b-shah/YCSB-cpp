@@ -42,11 +42,13 @@ wal_resources_t::wal_resources_t() {
     /*  register log buffers/files with io_uring.
         remember, log_buffers_, and wal_fds_, will be copied into the kernel,
         so I can use these freely after these calls return*/
+
+    /*
     rc = io_uring_register_buffers(&log_ring_, &log_buffers_[0], 2*N_PARTITIONS);
-    fprintf(stderr, "rc: %d, err: %s\n", rc, strerror(-rc));
     assert(rc == 0);
     rc = io_uring_register_files(&log_ring_, &wal_fds_[0], 2*N_PARTITIONS);
     assert(rc == 0);
+    */
 }
 
 wal_resources_t::~wal_resources_t() {
@@ -61,10 +63,12 @@ wal_resources_t::~wal_resources_t() {
 	    free((void*) log_buffers_[i].iov_base);
 	}
 
+    /*
     rc = io_uring_unregister_files(&log_ring_);
     assert(rc == 0);
     rc = io_uring_unregister_buffers(&log_ring_);
     assert(rc == 0);
+    */
     io_uring_queue_exit(&log_ring_);
 }
 
@@ -145,7 +149,6 @@ void* log_thr_body(void* arg) {
             //  check if we need to sync to log...
             uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
             if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_FLUSH_INTV) {
-                fprintf(stderr, "ucommit_ld: %u, p_commit: %u\n", ucommit_ld, part->l0_->wal_.buf_p_commit_);
                 assert(!sync_state[i].valid_ && "Cannot keep up with writes.");
 
                 rc = pthread_rwlock_unlock(&part->namespace_lock_);
@@ -169,7 +172,7 @@ void* log_thr_body(void* arg) {
                 assert(rc == 0);
 
                 //  the index of file and buffer we want to write.
-                int reg_idx = part->l0_->wal_.idx_;
+                //  int reg_idx = part->l0_->wal_.idx_;
                 //  Ensure we only log whole blocks.
                 until /= N_ENTRIES_PER_BLOCK;
                 uint32_t p_commit = part->l0_->wal_.buf_p_commit_;
@@ -181,8 +184,9 @@ void* log_thr_body(void* arg) {
 
                 //  do flush of blocks from 
                 struct io_uring_sqe* sqe = io_uring_get_sqe(log_ring);
-                io_uring_prep_write_fixed(sqe, reg_idx, p, len, f_offs, reg_idx);
-                sqe->flags |= IOSQE_FIXED_FILE;
+                //  io_uring_prep_write_fixed(sqe, reg_idx, p, len, f_offs, reg_idx);
+                io_uring_prep_write(sqe, part->l0_->wal_.fd_, p, len, f_offs);
+                //  sqe->flags |= IOSQE_FIXED_FILE;
 
                 sync_state[i].valid_ = true;
                 sync_state[i].part_idx_ = i;
@@ -193,7 +197,6 @@ void* log_thr_body(void* arg) {
                 //  safe, since only this thread writes to this ring.
                 int n_submitted = io_uring_submit(log_ring);
                 assert(n_submitted == 1);
-                fprintf(stderr, "Submitted for offs=%lu, len=%lu\n", f_offs, len);
 
                 //  advance p_commit now, so we can proceed...
                 part->l0_->wal_.buf_p_commit_ = until * N_ENTRIES_PER_BLOCK;
@@ -223,9 +226,8 @@ void* log_thr_body(void* arg) {
             rc = pthread_rwlock_unlock(&part->namespace_lock_);
 
             state->valid_ = false;
+            fprintf(stderr, "sync finished.\n");
             io_uring_cqe_seen(log_ring, cqe);
-
-            fprintf(stderr, "Completed sync.\n");
         } else {
             assert(rc == -EAGAIN);
         }

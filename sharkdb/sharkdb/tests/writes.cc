@@ -35,7 +35,7 @@ int main() {
     for (size_t T = 0; T<100; ++T) {
         for (size_t i = 0; i<N_WRITES; ++i) {
             if (i % 1000 == 0) {
-                printf("Writing %lu\n", i+T*N_WRITES);
+                // printf("Writing %lu\n", i+T*N_WRITES);
             }
             sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i]);
         }
