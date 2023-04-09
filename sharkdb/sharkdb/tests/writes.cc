@@ -7,10 +7,6 @@
 #include <cstdint>
 #include <string>
 
-static uint64_t rand64() {
-	return (((uint64_t) rand()) << 32) | rand();
-}
-
 static constexpr size_t N_WRITES = 10000;
 
 int main() {
@@ -18,7 +14,11 @@ int main() {
 
 	std::vector<std::string> ks_strs;
 	for (size_t i = 0; i<N_WRITES; ++i) {
-		ks_strs.push_back("user" + std::to_string(rand64()));
+        std::string k = "user";
+        for (size_t j = 0; j<20; ++j) {
+            k.push_back('0' + (rand() % 10));
+        }
+		ks_strs.push_back(k);
 	}
 
 	std::vector<const char*> vs_v;

@@ -120,7 +120,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
     rc = pthread_spin_unlock(&part->lclk_lock_);
     assert(rc == 0);
 
-	assert(buf_spot < LOG_BUF_MAX_ENTRIES && "Ran out of write space");
+	assert(buf_spot < LOG_BUF_MAX_ENTRIES && "Ran out of write space, shouldn't happen");
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
 
@@ -136,7 +136,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 		// already existed, need to lock.
 		rc = pthread_spin_lock(&r.first->second.lock_);
         assert(rc == 0);
-	}
+    }
 
 	// update ptrs to in-memory log-structured data.
 	mem_entry_t& entry = r.first->second;

@@ -143,7 +143,7 @@ void* log_thr_body(void* arg) {
 
                 //  check if we need to sync to log...
                 uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
-                if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_FLUSH_INTV) {
+                if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_SYNC_INTV) {
                     rc = pthread_rwlock_unlock(&part->namespace_lock_);
                     assert(rc == 0);
 
@@ -216,11 +216,9 @@ void* log_thr_body(void* arg) {
             part->lclk_visible_ = state->new_lclk_visible_;
 
             state->valid_ = false;
-            fprintf(stderr, "sync finished.\n");
             io_uring_cqe_seen(log_ring, cqe);
 
-            if (do_backpressure) {
-                assert(did_backpressure_locks);
+            if (did_backpressure_locks) {
                 for (size_t i = 0; i<N_PARTITIONS; ++i) {
                     partition_t* part = &db->partitions_[i];
                     rc = pthread_rwlock_unlock(&part->namespace_lock_);

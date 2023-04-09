@@ -23,9 +23,14 @@ void* flush_thr_body(void* arg) {
 	partition_t* part = (partition_t*) arg;
 
 	while (!part->stop_flush_thr_) {
-		/*	Safe to check outside, since small race in read is not a problem. Size is presumably
-			<64 bits, so reads are atomic. */
-		if (part->l0_->mem_table_.size() >= (MEM_TABLE_MAX_ENTRIES * MEM_TABLE_FULL_THR)/100) {
+        rc = pthread_spin_lock(&part->lclk_lock_);
+        assert(rc == 0);
+		uint32_t log_entries_used = part->l0_->wal_.buf_p_ucommit_;
+        rc = pthread_spin_unlock(&part->lclk_lock_);
+        assert(rc == 0);
+
+        //  Maintain size on our own, since regular size() is not safe- not monotonic, etc.
+		if (log_entries_used >= (LOG_BUF_MAX_ENTRIES * LOG_FULL_THR)/100) {
 			level_0_t* l0_new = new level_0_t(part->db_ref_);
 			level_0_t* l0_flush = part->l0_;
 
@@ -86,6 +91,7 @@ void* flush_thr_body(void* arg) {
 			delete l0_flush;
 			__sync_synchronize();
 		}
+        __builtin_ia32_pause();
 	}
 	return nullptr;
 }
