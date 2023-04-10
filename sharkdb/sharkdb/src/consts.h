@@ -24,6 +24,17 @@ static constexpr const char* ORDER_PREFIXES[N_PARTITIONS] = {
     "99999999999999999999",
 };
 
+//	Assume k is in the form 'user[0-9]+'
+static size_t get_partition(const char* k) {
+	assert(memcmp(k, KEY_PREFIX, strlen(KEY_PREFIX)) == 0);
+	for (size_t i = 0; i<N_PARTITIONS; ++i) {
+		if (memcmp(k+strlen(KEY_PREFIX), ORDER_PREFIXES[i], strlen(ORDER_PREFIXES[0])) <= 0) {
+            return i;
+		}
+	}
+	assert(false && "Should have matched a memtable.");
+}
+
 static_assert(GROWTH_POWERS[1] == SIZE_RATIO);
 static_assert(1+N_DISK_LEVELS == sizeof(GROWTH_POWERS)/sizeof(GROWTH_POWERS[0]));
 

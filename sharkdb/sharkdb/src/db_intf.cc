@@ -4,44 +4,15 @@
 
 #include <string>
 #include <cstdlib>
-#include <thread>
-
-#include <liburing.h>
-#include <tbb/concurrent_map.h>
 
 thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
-
-static db_t* db_instance = nullptr;
-static void free_db_instance() {
-	delete db_instance;
-}
-
-static std::once_flag init_flag;
-sharkdb_t* sharkdb_init() {
-	std::call_once(init_flag, [&](){
-		atexit(free_db_instance);
-		db_instance = new db_t();
-	});
-    return new sharkdb_t(db_instance, new cq_t());
-}
-
-//	Assume k is in the form 'user[0-9]+'
-static partition_t* get_partition(db_t* db, const char* k) {
-	assert(memcmp(k, KEY_PREFIX, strlen(KEY_PREFIX)) == 0);
-	for (size_t i = 0; i<N_PARTITIONS; ++i) {
-		if (memcmp(k+strlen(KEY_PREFIX), ORDER_PREFIXES[i], strlen(ORDER_PREFIXES[0])) <= 0) {
-			return &db->partitions_[i];
-		}
-	}
-	assert(false && "Should have matched a memtable.");
-}
 
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	/*
     int rc;
 
     db_t* p_db = (db_t*) db->db_impl_;
-	partition_t* part = get_partition(p_db, k);
+	partition_t* part = &p_db->partitions_[get_partition(k)];
 	sharkdb_cqev cqev = db->next_cqev_++;
 
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
@@ -109,7 +80,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	sharkdb_cqev cqev = db->next_cqev_++;
     int rc;
 
-	partition_t* part = get_partition(p_db, k);
+	partition_t* part = &p_db->partitions_[get_partition(p_db, k)];
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
@@ -154,16 +125,4 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	rc = pthread_rwlock_unlock(&part->namespace_lock_);
     assert(rc == 0);
 	return cqev;
-}
-
-sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
-	cq_t* cq = (cq_t*) db->cq_impl_;
-	cqe_t& cqe = cq->front();
-	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
-}
-
-//	don't delete the database, maybe reference count it via a std::shared_ptr?
-void sharkdb_free(sharkdb_t* db) {
-	delete (cq_t*) db->cq_impl_;
-	delete db;
 }

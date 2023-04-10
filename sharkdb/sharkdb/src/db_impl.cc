@@ -1,7 +1,8 @@
 
 #include "db_impl.h"
+#include <thread>
 
-//  Just fill out constructors, etc. here from db_impl.h
+//  Just fill out constructors, little methods, etc. here from db_impl.h/sharkdb.h
 
 fence_ptr_t::fence_ptr_t(const char* k, size_t blk_num) : blk_num_(blk_num) {
     memcpy(&k_[0], k, SHARKDB_KEY_BYTES);
@@ -73,4 +74,30 @@ db_t::~db_t() {
     void* res;
     int rc = pthread_join(log_thr_, &res);
     assert(rc == 0);
+}
+
+static db_t* db_instance = nullptr;
+static void free_db_instance() {
+	delete db_instance;
+}
+
+static std::once_flag init_flag;
+sharkdb_t* sharkdb_init() {
+	std::call_once(init_flag, [&](){
+		atexit(free_db_instance);
+		db_instance = new db_t();
+	});
+    return new sharkdb_t(db_instance, new cq_t());
+}
+
+sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
+	cq_t* cq = (cq_t*) db->cq_impl_;
+	cqe_t& cqe = cq->front();
+	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
+}
+
+//	don't delete the database, maybe reference count it via a std::shared_ptr?
+void sharkdb_free(sharkdb_t* db) {
+	delete (cq_t*) db->cq_impl_;
+	delete db;
 }
