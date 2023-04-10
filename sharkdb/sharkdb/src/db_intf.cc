@@ -67,7 +67,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
         assert(rc == 0);
 
         update_mem_entry(&entry, part->lclk_visible_);
-        assert(entry.p_commit_.lclk_ < part->lclk_visible_);
+        assert(entry.p_commit_.lclk_ <= part->lclk_visible_);
         char* pv = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0];
 
 		rc = pthread_spin_unlock(&entry.lock_);
