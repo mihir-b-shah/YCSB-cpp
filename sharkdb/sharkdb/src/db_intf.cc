@@ -79,40 +79,56 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 		return cqev;
 	}
 
-    /*
+    /*  Scan bloom filters in order, until I find a match.
+        Issue a read for the range of blocks the fence ptr tells me about.
+        In the read, provide info in user_data field about until where we searched,
+        so on completion, we can leave off from where we started.
+
+        It is safe to release namespace locks between such scans, since namespace
+        modifications have the property that they take from earlier (earlier levels,
+        or earlier occurring in the vector for a level), and place in later- observe
+        this is true for flush/compaction. Then, if it is guaranteed that even if
+        the namespace changes, nothing we should have searched would come up behind us. 
+        Of course, namespace change might mean what we searched from, say L1, and issued
+        read for, is now deleted and moved to an L2- in this case, the read will fail
+        with EBADF. */
+    
+    assert((part->disk_levels_[0].size() == 0) && "L0 is not on disk");
+    for (size_t l = 2; l<=N_DISK_LEVELS; ++l) {
+        assert((part->disk_levels_[l].size() == 0) && "Not doing compaction right now");
+    }
+
 	char* v_found = nullptr;
-	for (std::vector<ss_table_t*>& ss_level : part->disk_levels_) {
-		for (ss_table_t* ss_table : ss_level) {
-			if (ss_table->filter_.test(k)) {
-				// use fence pointers to find blocks to check.
-				fence_ptr_t dummy(k, 0);
-				auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
-					return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
-				});
-				//	because fence pointers are left-justified.
-				assert(it != ss_table->fence_ptrs_.begin());
-				size_t blk_range_end = it->blk_num_;
-				it--;
-				size_t blk_range_start = it->blk_num_;
-				assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
+    for (ss_table_t* ss_table : part->disk_levels_[1]) {
+        if (ss_table->filter_.test(k)) {
+            // use fence pointers to find blocks to check.
+            fence_ptr_t dummy(k, 0);
+            auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
+                return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
+            });
+            //	because fence pointers are left-justified.
+            assert(it != ss_table->fence_ptrs_.begin());
+            size_t blk_range_end = it->blk_num_;
+            it--;
+            size_t blk_range_start = it->blk_num_;
+            assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
 
-				//	Fence pointers are good enough to store for <10 blocks at a time. As such,
-				//	just linearly stream the blocks in.
-				rc = pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start);
-                assert(rc == BLOCK_BYTES*BLOCKS_PER_FENCE);
+            //	Fence pointers are good enough to store for <10 blocks at a time. As such,
+            //	just linearly stream the blocks in.
+            rc = pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start);
+            assert(rc == BLOCK_BYTES*BLOCKS_PER_FENCE);
 
-				for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
-					for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
-						char* kr = &pread_buf[b*BLOCK_BYTES + i*(SHARKDB_KEY_BYTES+SHARKDB_VAL_BYTES)];
-						if (memcmp(kr, k, SHARKDB_KEY_BYTES) == 0) {
-							v_found = kr+SHARKDB_KEY_BYTES;
-							goto search_done;
-						}
-					}
-				}
-			}
-		}
-	}
+            for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
+                for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
+                    char* kr = &pread_buf[b*BLOCK_BYTES + i*(SHARKDB_KEY_BYTES+SHARKDB_VAL_BYTES)];
+                    if (memcmp(kr, k, SHARKDB_KEY_BYTES) == 0) {
+                        v_found = kr+SHARKDB_KEY_BYTES;
+                        goto search_done;
+                    }
+                }
+            }
+        }
+    }
 
 	search_done:
 	rc = pthread_rwlock_unlock(&part->namespace_lock_);
@@ -120,8 +136,6 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	db->cq_impl->emplace(cqev);
 	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
 	return cqev;
-    */
-    return SHARKDB_CQEV_FAIL;
 }
 
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {

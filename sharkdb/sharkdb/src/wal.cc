@@ -124,7 +124,7 @@ void* log_thr_body(void* arg) {
     bool do_backpressure = false;
     bool did_backpressure_locks = false;
 
-    while (!db->stop_log_thr_) {
+    while (!db->stop_thrs_) {
         _loop_head:
         if (do_backpressure) {
             if (!did_backpressure_locks) {

@@ -22,7 +22,7 @@ void* flush_thr_body(void* arg) {
     int rc;
 	partition_t* part = (partition_t*) arg;
 
-	while (!part->stop_flush_thr_) {
+	while (!part->db_ref_->stop_thrs_) {
         rc = pthread_spin_lock(&part->lclk_lock_);
         assert(rc == 0);
 		uint32_t log_entries_used = part->l0_->wal_.buf_p_ucommit_;
@@ -79,7 +79,7 @@ void* flush_thr_body(void* arg) {
 			rc = close(ss_table->fd_);
             assert(rc == 0);
 
-			ss_table->fd_ = open(ss_table_path, O_RDONLY, S_IRUSR);
+			ss_table->fd_ = open(ss_table_path, O_RDONLY | O_DIRECT, S_IRUSR);
 			assert(ss_table->fd_ >= 0);
 
 			rc = pthread_rwlock_wrlock(&part->namespace_lock_);

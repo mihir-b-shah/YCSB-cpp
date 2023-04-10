@@ -124,19 +124,6 @@ struct wal_resources_t {
 
 void* log_thr_body(void* arg);
 
-struct db_t {
-    /*  Important wal_resources_ is constructed before partitions_, and destructed afterward-
-        as such, by C++ spec, we place it before partitions_ */
-    wal_resources_t wal_resources_;
-	std::vector<partition_t> partitions_;
-	pthread_t log_thr_;
-	bool stop_log_thr_;
-    uint32_t l0_version_ctr_;
-
-	db_t();
-	~db_t();
-};
-
 struct cqe_t {
 	partition_t* part_;
 	uint64_t lclk_visible_;
@@ -146,5 +133,60 @@ struct cqe_t {
 		: part_(part), lclk_visible_(lclk), ev_(ev) {}
 };
 typedef std::queue<cqe_t> cq_t;
+
+/*  User-thread private ring, since io_uring is intended to be each thread-private */
+struct read_ring_t {
+    struct __attribute__((packed)) block_t {
+        char buf[BLOCK_BYTES];
+    };
+    static_assert(sizeof(block_t) == BLOCK_BYTES);
+
+    struct free_list_t {
+        size_t TAIL_;
+        size_t head_;
+        //  Just implement in a threaded fashion to avoid allocations.
+        size_t* tlist_:
+
+        free_list_t(size_t n_blocks);
+        ~free_list_t() { delete[] tlist_; }
+    };
+
+    /*  Hijack the user_data void* field in io_uring to put this, to avoid allocating/
+        keeping track of that state. */
+    union progress_t {
+        struct {
+            uint8_t level_;
+            uint8_t id_;
+        };
+        void* repr_;
+    };
+    static_assert(sizeof(progress_t) <= sizeof(void*));
+
+    block_t* blocks_;
+    io_uring read_ring_;
+    db_t* db_ref_;
+    free_list_t free_list_;
+
+    read_ring_t(db_t* ref);
+    ~read_ring_t();
+};
+
+//  Put stuff here I want, to coordinate io's.
+struct io_manager_t {
+};
+
+struct db_t {
+    /*  Important wal_resources_ is constructed before partitions_, and destructed afterward-
+        as such, by C++ spec, we place it before partitions_ */
+    wal_resources_t wal_resources_;
+	std::vector<partition_t> partitions_;
+	pthread_t log_thr_;
+    uint32_t l0_version_ctr_;
+	bool stop_thrs_;
+    io_manager_t io_manager_;
+
+	db_t();
+	~db_t();
+};
 
 #endif

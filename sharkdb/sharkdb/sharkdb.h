@@ -20,8 +20,9 @@ struct sharkdb_t {
 	sharkdb_cqev next_cqev_;
 	std::unordered_map<sharkdb_cqev, char*> bufs_;
 	void* cq_impl_;
+    void* rd_ring_impl_;
 
-	sharkdb_t(void* db_impl, void* cq_impl) : db_impl_(db_impl), next_cqev_(0), cq_impl_(cq_impl) {}
+	sharkdb_t(void* db_impl, void* cq_impl, void* rd_ring_impl) : db_impl_(db_impl), next_cqev_(0), cq_impl_(cq_impl), rd_ring_impl_(rd_ring_impl) {}
 };
 
 // maybe add return codes later?

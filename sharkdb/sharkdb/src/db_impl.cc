@@ -21,9 +21,8 @@ level_0_t::level_0_t(db_t* ref) : mem_table_{cmp_keys_lt()}, wal_(ref), db_ref_(
     version_ = __atomic_add_fetch(&db_ref_->l0_version_ctr_, 1, __ATOMIC_SEQ_CST);
 }
 
-partition_t::partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), stop_flush_thr_(false), db_ref_(ref) {
+partition_t::partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), disk_levels_(1+N_DISK_LEVELS), lclk_visible_(0), lclk_next_(1), db_ref_(ref) {
     int rc;
-
     rc = pthread_spin_init(&lclk_lock_, PTHREAD_PROCESS_PRIVATE);
     assert(rc == 0);
 
@@ -41,8 +40,6 @@ partition_t::partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), d
 }
 
 partition_t::~partition_t() {
-    stop_flush_thr_ = true;
-
     void* res;
     int rc = pthread_join(flush_thr_, &res);
     assert(rc == 0);
@@ -59,7 +56,7 @@ partition_t::~partition_t() {
     }
 }
 
-db_t::db_t() : stop_log_thr_(false), l0_version_ctr_(0) {
+db_t::db_t() : l0_version_ctr_(0), stop_thrs_(false) {
     //	Necessary, since we're not implementing rule of 5...
     partitions_.reserve(N_PARTITIONS);
     for (size_t i = 0; i<N_PARTITIONS; ++i) {
@@ -70,7 +67,7 @@ db_t::db_t() : stop_log_thr_(false), l0_version_ctr_(0) {
 }
 
 db_t::~db_t() {
-    stop_log_thr_ = true;
+    stop_thrs_ = true;
     void* res;
     int rc = pthread_join(log_thr_, &res);
     assert(rc == 0);
@@ -83,11 +80,14 @@ static void free_db_instance() {
 
 static std::once_flag init_flag;
 sharkdb_t* sharkdb_init() {
+    static uint32_t init_ct = 0;
 	std::call_once(init_flag, [&](){
 		atexit(free_db_instance);
 		db_instance = new db_t();
 	});
-    return new sharkdb_t(db_instance, new cq_t());
+    uint32_t init_so_far = __atomic_add_fetch(&init_ct, 1, __ATOMIC_SEQ_CST);
+    assert(init_so_far <= N_USER_THREADS);
+    return new sharkdb_t(db_instance, new cq_t(), new read_ring_t(db_instance));
 }
 
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
@@ -96,8 +96,8 @@ sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
 	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
 }
 
-//	don't delete the database, maybe reference count it via a std::shared_ptr?
 void sharkdb_free(sharkdb_t* db) {
+    delete (read_ring_t*) db->rd_ring_impl_;
 	delete (cq_t*) db->cq_impl_;
 	delete db;
 }
