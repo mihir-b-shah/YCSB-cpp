@@ -18,7 +18,6 @@ static constexpr sharkdb_cqev SHARKDB_CQEV_FAIL = -1;
 struct sharkdb_t {
 	void* db_impl_;
 	sharkdb_cqev next_cqev_;
-	std::unordered_map<sharkdb_cqev, char*> bufs_;
 	void* cq_impl_;
     void* rd_ring_impl_;
 

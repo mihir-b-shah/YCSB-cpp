@@ -98,43 +98,48 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
         assert((part->disk_levels_[l].size() == 0) && "Not doing compaction right now");
     }
 
-	char* v_found = nullptr;
-    for (ss_table_t* ss_table : part->disk_levels_[1]) {
-        if (ss_table->filter_.test(k)) {
-            // use fence pointers to find blocks to check.
-            fence_ptr_t dummy(k, 0);
-            auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
-                return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
-            });
-            //	because fence pointers are left-justified.
-            assert(it != ss_table->fence_ptrs_.begin());
-            size_t blk_range_end = it->blk_num_;
-            it--;
-            size_t blk_range_start = it->blk_num_;
-            assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
+	bool submitted = false;
+	for (size_t i = 0; i<part->disk_levels_[1].size(); ++i) {
+		ss_table_t* ss_table = part->disk_levels_[1][i];
 
-            //	Fence pointers are good enough to store for <10 blocks at a time. As such,
-            //	just linearly stream the blocks in.
-            rc = pread(ss_table->fd_, &pread_buf[0], BLOCK_BYTES*(blk_range_end-blk_range_start), BLOCK_BYTES*blk_range_start);
-            assert(rc == BLOCK_BYTES*BLOCKS_PER_FENCE);
+		std::pair<size_t, size_t> range = get_ss_blk_range(k, ss_table);
+		if (range == std::pair<size_t, size_t>(0,0)) {
+			continue;
+		}
 
-            for (size_t b = 0; b<blk_range_end-blk_range_start; ++b) {
-                for (size_t i = 0; i<N_ENTRIES_PER_BLOCK; ++i) {
-                    char* kr = &pread_buf[b*BLOCK_BYTES + i*(SHARKDB_KEY_BYTES+SHARKDB_VAL_BYTES)];
-                    if (memcmp(kr, k, SHARKDB_KEY_BYTES) == 0) {
-                        v_found = kr+SHARKDB_KEY_BYTES;
-                        goto search_done;
-                    }
-                }
-            }
-        }
-    }
+		read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
 
-	search_done:
+		/*	A very poor form of backpressure, if we keep # in-flight requests correct,
+			shouldn't happen much. Problematic, since we do this while holding the
+			namespace lock though. */
+		size_t alloc_idx;
+		while (true) {
+			alloc_idx = rd_ring->free_list_.alloc();
+			if (alloc_idx != rd_ring->free_list_.TAIL_) {
+				break;
+			} else {
+				__builtin_ia32_pause();
+			}
+		}
+
+		read_ring_t::progress_t* prog_state = &rd_ring->progress_states_[alloc_idx];
+		prog_state->level_ = 1;
+		prog_state->ss_table_id_ = i;
+		memcpy(&prog_state->key_[0], k, SHARKDB_KEY_BYTES);
+		prog_state->blk_fill_id_ = alloc_idx;
+		prog_state->user_buf_ = fill_v;
+		prog_state->cqev_ = cqev;
+
+		submit_read_io(prog_state);
+		submitted = true;
+		break;
+	}
+
+	//	If matched nothing- note bloom filters have no false negatives, so really nothing.
+	assert(submitted && "We do not tolerate reads for keys not existing in DB, for now");
+
 	rc = pthread_rwlock_unlock(&part->namespace_lock_);
     assert(rc == 0);
-	db->cq_impl->emplace(cqev);
-	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
 	return cqev;
 }
 

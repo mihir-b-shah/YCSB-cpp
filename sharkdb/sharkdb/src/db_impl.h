@@ -8,6 +8,7 @@
 
 #include "consts.h"
 #include "filter.h"
+#include "free_list.h"
 
 #include <cstdlib>
 #include <cassert>
@@ -123,6 +124,7 @@ struct wal_resources_t {
 };
 
 void* log_thr_body(void* arg);
+void* io_thr_body(void* arg);
 
 struct cqe_t {
 	partition_t* part_;
@@ -136,33 +138,22 @@ typedef std::queue<cqe_t> cq_t;
 
 /*  User-thread private ring, since io_uring is intended to be each thread-private */
 struct read_ring_t {
-    struct __attribute__((packed)) block_t {
-        char buf[BLOCK_BYTES];
+    struct __attribute__((packed)) buffer_t {
+        char buf_[BLOCKS_PER_FENCE][BLOCK_BYTES];
     };
-    static_assert(sizeof(block_t) == BLOCK_BYTES);
+    static_assert(sizeof(buffer_t) == BLOCKS_PER_FENCE * BLOCK_BYTES);
 
-    struct free_list_t {
-        size_t TAIL_;
-        size_t head_;
-        //  Just implement in a threaded fashion to avoid allocations.
-        size_t* tlist_:
+	struct progress_t {
+		size_t level_;
+		size_t ss_table_id_;
+		char key_[SHARKDB_KEY_BYTES];
+		size_t blk_fill_id_;
+		char* user_buf_;
+		sharkdb_cqev cqev_;
+	};
 
-        free_list_t(size_t n_blocks);
-        ~free_list_t() { delete[] tlist_; }
-    };
-
-    /*  Hijack the user_data void* field in io_uring to put this, to avoid allocating/
-        keeping track of that state. */
-    union progress_t {
-        struct {
-            uint8_t level_;
-            uint8_t id_;
-        };
-        void* repr_;
-    };
-    static_assert(sizeof(progress_t) <= sizeof(void*));
-
-    block_t* blocks_;
+    buffer_t* buffers_;
+	progress_t* progress_states_;
     io_uring read_ring_;
     db_t* db_ref_;
     free_list_t free_list_;
@@ -170,6 +161,9 @@ struct read_ring_t {
     read_ring_t(db_t* ref);
     ~read_ring_t();
 };
+
+std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table);
+void submit_read_io(read_ring_t::progress_t* prog_state);
 
 //  Put stuff here I want, to coordinate io's.
 struct io_manager_t {
@@ -183,6 +177,7 @@ struct db_t {
 	pthread_t log_thr_;
     uint32_t l0_version_ctr_;
 	bool stop_thrs_;
+	pthread_t io_thr_;
     io_manager_t io_manager_;
 
 	db_t();

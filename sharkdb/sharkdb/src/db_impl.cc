@@ -56,20 +56,51 @@ partition_t::~partition_t() {
     }
 }
 
+/*	[s,e) range if found, if not [0,0)
+	Fence pointers are good enough to store for <10 blocks at a time. As such,
+	Just linearly stream the blocks in. */
+std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table) {
+	if (ss_table->filter_.test(k)) {
+		// use fence pointers to find blocks to check.
+		fence_ptr_t dummy(k, 0);
+		auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
+			return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
+		});
+		//	because fence pointers are left-justified.
+		assert(it != ss_table->fence_ptrs_.begin());
+		size_t blk_range_end = it->blk_num_;
+		it--;
+		size_t blk_range_start = it->blk_num_;
+		assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
+		return {blk_range_start, blk_range_end};
+	} else {
+		return {0, 0};
+	}
+}
+
 db_t::db_t() : l0_version_ctr_(0), stop_thrs_(false) {
-    //	Necessary, since we're not implementing rule of 5...
+	int rc;
+
+    //	Necessary to avoid copy constructor, since we're not implementing rule of 5...
     partitions_.reserve(N_PARTITIONS);
     for (size_t i = 0; i<N_PARTITIONS; ++i) {
         partitions_.emplace_back(i, this);
     }
-    int rc = pthread_create(&log_thr_, nullptr, log_thr_body, this);
+
+    rc = pthread_create(&log_thr_, nullptr, log_thr_body, this);
+    assert(rc == 0);
+    rc = pthread_create(&io_thr_, nullptr, io_thr_body, this);
     assert(rc == 0);
 }
 
 db_t::~db_t() {
     stop_thrs_ = true;
+	int rc;
     void* res;
-    int rc = pthread_join(log_thr_, &res);
+
+    rc = pthread_join(log_thr_, &res);
+    assert(rc == 0);
+    rc = pthread_join(io_thr_, &res);
     assert(rc == 0);
 }
 
