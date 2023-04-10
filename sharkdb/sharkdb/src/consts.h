@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <cassert>
 
 static constexpr size_t N_ENTRIES_PER_BLOCK = 4;
 static constexpr size_t N_DISK_LEVELS = 2;
@@ -25,7 +26,7 @@ static constexpr const char* ORDER_PREFIXES[N_PARTITIONS] = {
 };
 
 //	Assume k is in the form 'user[0-9]+'
-static size_t get_partition(const char* k) {
+static inline size_t get_partition(const char* k) {
 	assert(memcmp(k, KEY_PREFIX, strlen(KEY_PREFIX)) == 0);
 	for (size_t i = 0; i<N_PARTITIONS; ++i) {
 		if (memcmp(k+strlen(KEY_PREFIX), ORDER_PREFIXES[i], strlen(ORDER_PREFIXES[0])) <= 0) {

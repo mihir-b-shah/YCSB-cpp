@@ -7,30 +7,58 @@
 
 thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
 
+static void update_mem_entry(mem_entry_t* entry, uint64_t curr_clk) {
+	if (entry->p_ucommit_.lclk_ != 0 && entry->p_ucommit_.lclk_ <= curr_clk) {
+		entry->p_commit_ = entry->p_ucommit_;
+	}
+}
+
+static kv_pair_t* get_kv_pair_at(partition_t* part, uint32_t buf_spot) {
+    uint32_t block_spot = buf_spot / N_ENTRIES_PER_BLOCK;
+    uint32_t block_idx = buf_spot % N_ENTRIES_PER_BLOCK;
+	return &part->l0_->wal_.log_buffer_[block_spot].kvs_[block_idx];
+}
+
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
-	/*
     int rc;
 
     db_t* p_db = (db_t*) db->db_impl_;
 	partition_t* part = &p_db->partitions_[get_partition(k)];
 	sharkdb_cqev cqev = db->next_cqev_++;
 
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_) == 0);
+	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
+    //  Do memory reads synchronously, and kick off first I/O here.
 	mem_table_t::iterator it = part->l0_->mem_table_.find(k);
 	if (it != part->l0_->mem_table_.end()) {
-		rc = pthread_rwlock_rdlock(&it->second.lock_);
+        /*  Acquiring the spinlock here shouldn't degrade perf/is correct:
+            1)  In write_async, we do the memcpy outside the spinlock region- so perf wise,
+                spinlock shouldn't be held too long.
+            2)  Correctness- when we do memcpy followed by add to the memtable, there is no
+                need to place a membarrier between them, since for reads, that data will not become
+                visible for the duration of the method (since data needs to be synced to be read),
+                since our syncing impl acquires an exclusive namespace lock, and thus pushes
+                everyone out of their operations. */
+
+        mem_entry_t& entry = it->second;
+		rc = pthread_spin_lock(&entry.lock_);
         assert(rc == 0);
 
-		memcpy(fill_v, (char*) it->second.v_, SHARKDB_VAL_BYTES);
-		db->cq_impl_->emplace(cqev);
+        update_mem_entry(&entry, part->lclk_visible_);
+        assert(entry.p_commit_.lclk_ < part->lclk_visible_);
+        char* pv = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0]
 
-		rc = pthread_rwlock_unlock(&it->second.lock_);
+		rc = pthread_spin_unlock(&entry.lock_);
         assert(rc == 0);
+
+		memcpy(fill_v, pv, SHARKDB_VAL_BYTES);
+        cq_t* cq = (cq_t*) db->cq_impl_;
+        cq->emplace(part, my_lclk, cqev);
 		return cqev;
 	}
 
+    /*
 	char* v_found = nullptr;
 	for (std::vector<ss_table_t*>& ss_level : part->disk_levels_) {
 		for (ss_table_t* ss_table : ss_level) {
@@ -71,8 +99,8 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	db->cq_impl->emplace(cqev);
 	memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
 	return cqev;
-	*/
-	return SHARKDB_CQEV_FAIL;
+    */
+    return SHARKDB_CQEV_FAIL;
 }
 
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
@@ -80,7 +108,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	sharkdb_cqev cqev = db->next_cqev_++;
     int rc;
 
-	partition_t* part = &p_db->partitions_[get_partition(p_db, k)];
+	partition_t* part = &p_db->partitions_[get_partition(k)];
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
@@ -95,10 +123,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
 
-    uint32_t block_spot = buf_spot / N_ENTRIES_PER_BLOCK;
-    uint32_t block_idx = buf_spot % N_ENTRIES_PER_BLOCK;
-
-	kv_pair_t* kv_fill = &part->l0_->wal_.log_buffer_[block_spot].kvs_[block_idx];
+	kv_pair_t* kv_fill = get_kv_pair_at(part, buf_spot);
 	memcpy(&kv_fill->key_[0], k, SHARKDB_KEY_BYTES);
 	memcpy(&kv_fill->val_[0], v, SHARKDB_VAL_BYTES);
 
@@ -111,9 +136,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	// update ptrs to in-memory log-structured data.
 	mem_entry_t& entry = r.first->second;
-	if (entry.p_ucommit_.lclk_ != 0 && entry.p_ucommit_.lclk_ <= part->lclk_visible_) {
-		entry.p_commit_ = entry.p_ucommit_;
-	}
+    update_mem_entry(&entry, part->lclk_visible_);
 	entry.p_ucommit_.lclk_ = my_lclk;
 	entry.p_ucommit_.buf_pos_ = buf_spot;
 	rc = pthread_spin_unlock(&r.first->second.lock_);
