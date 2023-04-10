@@ -125,6 +125,7 @@ void* log_thr_body(void* arg) {
     bool did_backpressure_locks = false;
 
     while (!db->stop_log_thr_) {
+        _loop_head:
         if (do_backpressure) {
             if (!did_backpressure_locks) {
                 for (size_t i = 0; i<N_PARTITIONS; ++i) {
@@ -148,8 +149,9 @@ void* log_thr_body(void* arg) {
                     assert(rc == 0);
 
                     if (sync_state[i].valid_) {
+                        assert(!do_backpressure && !did_backpressure_locks);
                         do_backpressure = true;
-                        break;
+                        goto _loop_head;
                     }
 
                     /*  Pthread rw lock cannot be upgraded, so release/try again.

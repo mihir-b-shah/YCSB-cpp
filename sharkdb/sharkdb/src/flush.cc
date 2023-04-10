@@ -31,7 +31,6 @@ void* flush_thr_body(void* arg) {
 
         //  Maintain size on our own, since regular size() is not safe- not monotonic, etc.
 		if (log_entries_used >= (LOG_BUF_MAX_ENTRIES * LOG_FULL_THR)/100) {
-            fprintf(stderr, "Flushing\n");
 			level_0_t* l0_new = new level_0_t(part->db_ref_);
 			level_0_t* l0_flush = part->l0_;
 
