@@ -19,12 +19,33 @@ static kv_pair_t* get_kv_pair_at(partition_t* part, uint32_t buf_spot) {
 	return &part->l0_->wal_.log_buffer_[block_spot].kvs_[block_idx];
 }
 
+template <bool IS_WRITE>
+static std::pair<uint64_t, uint32_t> lclk_advance(partition_t* part) {
+	std::pair<uint64_t, uint32_t> ret;
+	int rc;
+    rc = pthread_spin_lock(&part->lclk_lock_);
+    assert(rc == 0);
+
+    ret.first = part->lclk_next_++;
+	if (IS_WRITE) {
+		ret.second = part->l0_->wal_.buf_p_ucommit_++;
+	}
+
+    rc = pthread_spin_unlock(&part->lclk_lock_);
+    assert(rc == 0);
+	return ret;
+}
+
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
     int rc;
 
     db_t* p_db = (db_t*) db->db_impl_;
 	partition_t* part = &p_db->partitions_[get_partition(k)];
 	sharkdb_cqev cqev = db->next_cqev_++;
+
+	/*	Acquires a spinlock, is this scalable? */
+	std::pair<uint64_t, uint32_t> la_res = lclk_advance<false>(part);
+	uint64_t my_lclk = la_res.first;
 
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
@@ -47,7 +68,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
         update_mem_entry(&entry, part->lclk_visible_);
         assert(entry.p_commit_.lclk_ < part->lclk_visible_);
-        char* pv = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0]
+        char* pv = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0];
 
 		rc = pthread_spin_unlock(&entry.lock_);
         assert(rc == 0);
@@ -112,13 +133,9 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
-    rc = pthread_spin_lock(&part->lclk_lock_);
-    assert(rc == 0);
-    uint64_t my_lclk = part->lclk_next_++;
-    uint32_t buf_spot = part->l0_->wal_.buf_p_ucommit_++;
-    rc = pthread_spin_unlock(&part->lclk_lock_);
-    assert(rc == 0);
-
+	std::pair<uint64_t, uint32_t> la_res = lclk_advance<true>(part);
+	uint64_t my_lclk = la_res.first;
+	uint32_t buf_spot = la_res.second;
 	assert(buf_spot < LOG_BUF_MAX_ENTRIES && "Ran out of write space, shouldn't happen");
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
