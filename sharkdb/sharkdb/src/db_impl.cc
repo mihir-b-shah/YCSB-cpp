@@ -109,16 +109,38 @@ static void free_db_instance() {
 	delete db_instance;
 }
 
-static std::once_flag init_flag;
 sharkdb_t* sharkdb_init() {
+    static std::once_flag init_flag;
     static uint32_t init_ct = 0;
+    int rc;
+
 	std::call_once(init_flag, [&](){
 		atexit(free_db_instance);
 		db_instance = new db_t();
 	});
-    uint32_t init_so_far = __atomic_add_fetch(&init_ct, 1, __ATOMIC_SEQ_CST);
-    assert(init_so_far <= N_USER_THREADS);
-    return new sharkdb_t(db_instance, new cq_t(), new read_ring_t(db_instance));
+    cq_t* cq = new cq_t();
+    read_ring_t* rd_ring = new read_ring_t(db_instance);
+
+    rc = pthread_mutex_lock(&db_instance->io_manager_.lock_);
+    assert(rc == 0);
+
+    assert(++init_ct <= N_USER_THREADS);
+    db_instance->io_manager_.cq_refs_.push_back(cq);
+    db_instance->io_manager_.rd_ring_refs_.push_back(rd_ring);
+
+    rc = pthread_mutex_unlock(&db_instance->io_manager_.lock_);
+    assert(rc == 0);
+
+    return new sharkdb_t(db_instance, cq, rd_ring);
+}
+
+void sharkdb_drain(sharkdb_t* db) {
+    read_ring_t* ring = (read_ring_t*) db->rd_ring_impl_;
+    size_t space = io_uring_sq_space_left(&ring->ring_);
+    if (space < READ_SQ_DEPTH) {
+        int n_submitted = io_uring_submit(&ring->ring_);
+        assert(n_submitted == (int) (READ_SQ_DEPTH-space));
+    }
 }
 
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
@@ -128,7 +150,5 @@ sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
 }
 
 void sharkdb_free(sharkdb_t* db) {
-    delete (read_ring_t*) db->rd_ring_impl_;
-	delete (cq_t*) db->cq_impl_;
 	delete db;
 }

@@ -5,8 +5,6 @@
 #include <string>
 #include <cstdlib>
 
-thread_local char pread_buf[BLOCK_BYTES * BLOCKS_PER_FENCE];
-
 static void update_mem_entry(mem_entry_t* entry, uint64_t curr_clk) {
 	if (entry->p_ucommit_.lclk_ != 0 && entry->p_ucommit_.lclk_ <= curr_clk) {
 		entry->p_commit_ = entry->p_ucommit_;
@@ -43,9 +41,9 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	partition_t* part = &p_db->partitions_[get_partition(k)];
 	sharkdb_cqev cqev = db->next_cqev_++;
 
-	/*	Acquires a spinlock, is this scalable? */
-	std::pair<uint64_t, uint32_t> la_res = lclk_advance<false>(part);
-	uint64_t my_lclk = la_res.first;
+	//	Acquires a spinlock, is this scalable?
+    //  I don't actually need the result here...
+	lclk_advance<false>(part);
 
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
@@ -75,7 +73,8 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
 		memcpy(fill_v, pv, SHARKDB_VAL_BYTES);
         cq_t* cq = (cq_t*) db->cq_impl_;
-        cq->emplace(part, my_lclk, cqev);
+        //  lclk=0 suffices here, reads should become visible as soon as appear in queue.
+        cq->emplace(part, 0, cqev);
 		return cqev;
 	}
 
@@ -85,28 +84,23 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
         so on completion, we can leave off from where we started.
 
         It is safe to release namespace locks between such scans, since namespace
-        modifications have the property that they take from earlier (earlier levels,
-        or earlier occurring in the vector for a level), and place in later- observe
-        this is true for flush/compaction. Then, if it is guaranteed that even if
-        the namespace changes, nothing we should have searched would come up behind us. 
-        Of course, namespace change might mean what we searched from, say L1, and issued
-        read for, is now deleted and moved to an L2- in this case, the read will fail
-        with EBADF. */
-    
+        modifications (i.e. just flushing for now) have the property, they move memtable
+        to disk. But since we already know which memtable we start on, and work backwards,
+        the additions are happening to our right, and as such we view a consistent prefix
+        of sstables. */
+
     assert((part->disk_levels_[0].size() == 0) && "L0 is not on disk");
     for (size_t l = 2; l<=N_DISK_LEVELS; ++l) {
         assert((part->disk_levels_[l].size() == 0) && "Not doing compaction right now");
     }
 
-	bool submitted = false;
-	for (size_t i = 0; i<part->disk_levels_[1].size(); ++i) {
+    ssize_t i;
+	for (i = (ssize_t) part->disk_levels_[1].size()-1; i>=0; --i) {
 		ss_table_t* ss_table = part->disk_levels_[1][i];
-
 		std::pair<size_t, size_t> range = get_ss_blk_range(k, ss_table);
 		if (range == std::pair<size_t, size_t>(0,0)) {
 			continue;
 		}
-
 		read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
 
 		/*	A very poor form of backpressure, if we keep # in-flight requests correct,
@@ -123,20 +117,24 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 		}
 
 		read_ring_t::progress_t* prog_state = &rd_ring->progress_states_[alloc_idx];
+        prog_state->part_ = part;
 		prog_state->level_ = 1;
 		prog_state->ss_table_id_ = i;
 		memcpy(&prog_state->key_[0], k, SHARKDB_KEY_BYTES);
 		prog_state->blk_fill_id_ = alloc_idx;
 		prog_state->user_buf_ = fill_v;
 		prog_state->cqev_ = cqev;
+        prog_state->fd_ = ss_table->fd_;
+        prog_state->blk_range_start_ = range.first; 
+        prog_state->blk_range_end_ = range.second;
 
-		submit_read_io(prog_state);
-		submitted = true;
+        //  Take the hit of the first I/O submit on the user thread
+		submit_read_io(rd_ring, prog_state);
 		break;
 	}
 
 	//	If matched nothing- note bloom filters have no false negatives, so really nothing.
-	assert(submitted && "We do not tolerate reads for keys not existing in DB, for now");
+	assert(i > -1 && "We do not tolerate reads for keys not existing in DB, for now");
 
 	rc = pthread_rwlock_unlock(&part->namespace_lock_);
     assert(rc == 0);

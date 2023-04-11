@@ -28,6 +28,7 @@ struct sharkdb_t {
 sharkdb_t* sharkdb_init();
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* v);
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v);
+void sharkdb_drain(sharkdb_t* db);
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db);
 void sharkdb_free(sharkdb_t* db);
 

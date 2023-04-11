@@ -81,7 +81,7 @@ wal_t::wal_t(db_t* ref) : buf_p_ucommit_(0), buf_p_commit_(0), db_ref_(ref) {
 	rc = lseek(fd_, 0, SEEK_SET);
     assert(rc == 0);
 
-    log_buffer_ = (wal_block_t*) wres->log_buffers_[i].iov_base;
+    log_buffer_ = (block_t*) wres->log_buffers_[i].iov_base;
 }
 
 wal_t::~wal_t() {
@@ -112,6 +112,7 @@ struct sync_state_t {
     size_t part_idx_;
     uint32_t l0_version_;
     uint64_t new_lclk_visible_;
+    size_t n_written_;
 
     sync_state_t() : valid_(false) {}
 };
@@ -188,6 +189,7 @@ void* log_thr_body(void* arg) {
                     sync_state[i].valid_ = true;
                     sync_state[i].part_idx_ = i;
                     sync_state[i].l0_version_ = part->l0_->version_;
+                    sync_state[i].n_written_ = len;
                     sync_state[i].new_lclk_visible_ = lclk-1;
                     io_uring_sqe_set_data(sqe, (void*) &sync_state[i]);
 
@@ -218,6 +220,7 @@ void* log_thr_body(void* arg) {
             part->lclk_visible_ = state->new_lclk_visible_;
 
             state->valid_ = false;
+            assert(cqe->res == (int) state->n_written_);
             io_uring_cqe_seen(log_ring, cqe);
 
             if (did_backpressure_locks) {

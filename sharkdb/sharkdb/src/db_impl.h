@@ -24,16 +24,16 @@
 
 struct db_t;
 
-struct wal_t {
-    struct wal_block_t {
-        kv_pair_t kvs_[N_ENTRIES_PER_BLOCK];
-        char pad_[BLOCK_BYTES - sizeof(kv_pair_t)*N_ENTRIES_PER_BLOCK];
-    };
-    static_assert(sizeof(wal_block_t) == BLOCK_BYTES);
+struct block_t {
+    kv_pair_t kvs_[N_ENTRIES_PER_BLOCK];
+    char pad_[BLOCK_BYTES - sizeof(kv_pair_t)*N_ENTRIES_PER_BLOCK];
+};
+static_assert(sizeof(block_t) == BLOCK_BYTES);
 
+struct wal_t {
 	int idx_;
     int fd_;
-	wal_block_t* log_buffer_;
+	block_t* log_buffer_;
 	uint32_t buf_p_ucommit_;
 	uint32_t buf_p_commit_;
     db_t* db_ref_;
@@ -139,22 +139,28 @@ typedef std::queue<cqe_t> cq_t;
 /*  User-thread private ring, since io_uring is intended to be each thread-private */
 struct read_ring_t {
     struct __attribute__((packed)) buffer_t {
-        char buf_[BLOCKS_PER_FENCE][BLOCK_BYTES];
+        block_t buf_[BLOCKS_PER_FENCE];
     };
     static_assert(sizeof(buffer_t) == BLOCKS_PER_FENCE * BLOCK_BYTES);
 
 	struct progress_t {
+        partition_t* part_;
 		size_t level_;
 		size_t ss_table_id_;
 		char key_[SHARKDB_KEY_BYTES];
 		size_t blk_fill_id_;
 		char* user_buf_;
 		sharkdb_cqev cqev_;
+
+        // just some utilities for submit_read_io.
+        int fd_;
+        size_t blk_range_start_;
+        size_t blk_range_end_;
 	};
 
     buffer_t* buffers_;
 	progress_t* progress_states_;
-    io_uring read_ring_;
+    io_uring ring_;
     db_t* db_ref_;
     free_list_t free_list_;
 
@@ -163,10 +169,15 @@ struct read_ring_t {
 };
 
 std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table);
-void submit_read_io(read_ring_t::progress_t* prog_state);
+void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state);
 
 //  Put stuff here I want, to coordinate io's.
 struct io_manager_t {
+    pthread_mutex_t lock_;
+    std::vector<cq_t*> cq_refs_; 
+    std::vector<read_ring_t*> rd_ring_refs_; 
+
+    io_manager_t() : lock_(PTHREAD_MUTEX_INITIALIZER) {}
 };
 
 struct db_t {
