@@ -145,8 +145,13 @@ void sharkdb_drain(sharkdb_t* db) {
 
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
 	cq_t* cq = (cq_t*) db->cq_impl_;
-	cqe_t& cqe = cq->front();
-	return cqe.lclk_visible_ <= cqe.part_->lclk_visible_ ? cqe.ev_ : SHARKDB_CQEV_FAIL;
+	cqe_t cqe = cq->front();
+	if (cqe.lclk_visible_ <= cqe.part_->lclk_visible_) {
+        cq->pop();
+        return cqe.ev_;
+    } else {
+        return SHARKDB_CQEV_FAIL;
+    }
 }
 
 void sharkdb_free(sharkdb_t* db) {

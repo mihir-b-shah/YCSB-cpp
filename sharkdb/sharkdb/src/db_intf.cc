@@ -150,10 +150,26 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
-	std::pair<uint64_t, uint32_t> la_res = lclk_advance<true>(part);
-	uint64_t my_lclk = la_res.first;
-	uint32_t buf_spot = la_res.second;
-	assert(buf_spot < LOG_BUF_MAX_ENTRIES && "Ran out of write space, shouldn't happen");
+    uint64_t my_lclk;
+    uint32_t buf_spot;
+    while (true) {
+        //  Again, poor man's backpressure
+        std::pair<uint64_t, uint32_t> la_res = lclk_advance<true>(part);
+        my_lclk = la_res.first;
+        buf_spot = la_res.second;
+        if (buf_spot >= LOG_BUF_MAX_ENTRIES) {
+            level_0_t* l0_old_ = part->l0_;
+            rc = pthread_rwlock_unlock(&part->namespace_lock_);
+            //  Wait for the l0_ to change (i.e. it is swapped out)
+            while (part->l0_ == l0_old_) {
+                __builtin_ia32_pause();
+            }
+
+            rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+        } else {
+            break;
+        }
+    }
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
 
