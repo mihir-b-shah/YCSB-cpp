@@ -44,6 +44,18 @@ int main() {
 
 	printf("After multiwrite.\n");
 
+    for (size_t i = 0; i<N_WRITES; ++i) {
+        sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_WRITES/100)]);
+    } 
+
+    cq_received = 0;
+    while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {
+        sharkdb_cqev ev = sharkdb_cpoll_cq(p_db);
+        if (ev != SHARKDB_CQEV_FAIL) {
+            cq_received += 1;
+        }
+    }
+
     sharkdb_free(p_db);
 	for (const char* v : vs_v) {
 		free((void*) v);

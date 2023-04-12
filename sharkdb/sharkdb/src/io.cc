@@ -14,7 +14,11 @@ read_ring_t::read_ring_t(db_t* ref) : db_ref_(ref) {
     size_t n_buffers = total_lk_mem_avail / (BLOCKS_PER_FENCE * BLOCK_BYTES * N_USER_THREADS);
 
 	//	Note for each read that requires I/O, we need one progress_state tracker.
-    buffers_ = new buffer_t[n_buffers];
+    void* buffers_base;
+    rc = posix_memalign(&buffers_base, BLOCK_BYTES, n_buffers * sizeof(buffer_t));
+    assert(rc == 0);
+
+    buffers_ = (buffer_t*) buffers_base;
 	progress_states_ = new progress_t[n_buffers];
 	free_list_.init(n_buffers);
 
@@ -33,7 +37,7 @@ read_ring_t::~read_ring_t() {
 
     io_uring_queue_exit(&ring_);
     
-    delete[] buffers_;
+    free(buffers_);
 	delete[] progress_states_;
 }
 
@@ -91,8 +95,11 @@ void* io_thr_body(void* arg) {
             rc = io_uring_peek_cqe(&rings[i]->ring_, &cqe);
             if (rc == 0) {
                 read_ring_t::progress_t* state = (read_ring_t::progress_t*) io_uring_cqe_get_data(cqe);
-                size_t n_written = (state->blk_range_end_ - state->blk_range_start_) * BLOCK_BYTES;
-                assert(cqe->res == (int) n_written);
+                size_t n_read = (state->blk_range_end_ - state->blk_range_start_) * BLOCK_BYTES;
+                if (cqe->res != (int) n_read) {
+                    fprintf(stderr, "res: %d, n_read: %lu, state: %p\n", cqe->res, n_read, (void*) state);
+                }
+                assert(cqe->res == (int) n_read);
                 char* res = search_buffer(rings[i], state);
 
                 if (res != nullptr) {
