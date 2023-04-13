@@ -2,6 +2,11 @@
 #include "db_impl.h"
 #include <thread>
 
+/*	TODO need to implement some form of draining:
+	1) we buffer calls before doing io_uring_submit.
+	2) need to finish polling read completion queue.
+	3) need to persist current in-memory changes to log. */
+
 //  Just fill out constructors, little methods, etc. here from db_impl.h/sharkdb.h
 
 fence_ptr_t::fence_ptr_t(const char* k, size_t blk_num) : blk_num_(blk_num) {
@@ -66,11 +71,16 @@ std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table) 
 		auto it = std::upper_bound(ss_table->fence_ptrs_.begin(), ss_table->fence_ptrs_.end(), dummy, [](const fence_ptr_t& f1, const fence_ptr_t& f2){
 			return memcmp(&f1.k_[0], &f2.k_[0], SHARKDB_KEY_BYTES) < 0;
 		});
+		//	Possible for key not existing in this table.
+		if (it == ss_table->fence_ptrs_.begin()) {
+			return {0,0};
+		}
 		//	because fence pointers are left-justified.
-		assert(it != ss_table->fence_ptrs_.begin());
+		assert(it != ss_table->fence_ptrs_.end());
 		size_t blk_range_end = it->blk_num_;
 		it--;
 		size_t blk_range_start = it->blk_num_;
+
 		assert(blk_range_end - blk_range_start <= BLOCKS_PER_FENCE);
 		return {blk_range_start, blk_range_end};
 	} else {
@@ -89,8 +99,6 @@ db_t::db_t() : l0_version_ctr_(0), stop_thrs_(false) {
 
     rc = pthread_create(&log_thr_, nullptr, log_thr_body, this);
     assert(rc == 0);
-    rc = pthread_create(&io_thr_, nullptr, io_thr_body, this);
-    assert(rc == 0);
 }
 
 db_t::~db_t() {
@@ -99,8 +107,6 @@ db_t::~db_t() {
     void* res;
 
     rc = pthread_join(log_thr_, &res);
-    assert(rc == 0);
-    rc = pthread_join(io_thr_, &res);
     assert(rc == 0);
 }
 
@@ -121,26 +127,14 @@ sharkdb_t* sharkdb_init() {
     cq_t* cq = new cq_t();
     read_ring_t* rd_ring = new read_ring_t(db_instance);
 
+	//	Use a mutex since we might want to add more stuff in here.
     rc = pthread_mutex_lock(&db_instance->io_manager_.lock_);
     assert(rc == 0);
-
     assert(++init_ct <= N_USER_THREADS);
-    db_instance->io_manager_.cq_refs_.push_back(cq);
-    db_instance->io_manager_.rd_ring_refs_.push_back(rd_ring);
-
     rc = pthread_mutex_unlock(&db_instance->io_manager_.lock_);
     assert(rc == 0);
 
     return new sharkdb_t(db_instance, cq, rd_ring);
-}
-
-void sharkdb_drain(sharkdb_t* db) {
-    read_ring_t* ring = (read_ring_t*) db->rd_ring_impl_;
-    size_t space = io_uring_sq_space_left(&ring->ring_);
-    if (space < READ_SQ_DEPTH) {
-        int n_submitted = io_uring_submit(&ring->ring_);
-        assert(n_submitted == (int) (READ_SQ_DEPTH-space));
-    }
 }
 
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
@@ -155,5 +149,15 @@ sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
 }
 
 void sharkdb_free(sharkdb_t* db) {
+	delete (cq_t*) db->cq_impl_;
+	delete (read_ring_t*) db->rd_ring_impl_;
 	delete db;
+}
+
+//	Hacky- just for ending, to avoid complex logic
+void sharkdb_drain(sharkdb_t* db) {
+	cq_t* cq = (cq_t*) db->cq_impl_;
+	while (!cq->empty()) {
+		cq->pop();
+	}
 }

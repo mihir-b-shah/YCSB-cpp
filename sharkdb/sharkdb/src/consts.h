@@ -4,6 +4,7 @@
 
 #include "sharkdb.h"
 
+#include <cstdio>
 #include <cstddef>
 #include <cstring>
 #include <cassert>
@@ -56,5 +57,12 @@ struct __attribute__((packed)) kv_pair_t {
 	char key_[SHARKDB_KEY_BYTES];
 	char val_[SHARKDB_VAL_BYTES];
 };
+
+static inline void print_key(void* p, char* s) {
+	char buf[1+SHARKDB_KEY_BYTES];
+	memcpy(&buf[0], s, SHARKDB_KEY_BYTES);
+	buf[SHARKDB_KEY_BYTES] = '\0';
+	fprintf(stderr, "p: %p, key: %s\n", p, (const char*) &buf[0]);
+}
 
 #endif

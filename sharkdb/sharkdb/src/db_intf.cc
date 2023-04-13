@@ -34,23 +34,12 @@ static std::pair<uint64_t, uint32_t> lclk_advance(partition_t* part) {
 	return ret;
 }
 
-sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
-    int rc;
+static char* do_memtable_read(partition_t* part, level_0_t* l0, const char* k) {
+	mem_table_t::iterator it = l0->mem_table_.find(k);
+	char* ret;
+	int rc;
 
-    db_t* p_db = (db_t*) db->db_impl_;
-	partition_t* part = &p_db->partitions_[get_partition(k)];
-	sharkdb_cqev cqev = db->next_cqev_++;
-
-	//	Acquires a spinlock, is this scalable?
-    //  I don't actually need the result here...
-	lclk_advance<false>(part);
-
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-    assert(rc == 0);
-
-    //  Do memory reads synchronously, and kick off first I/O here.
-	mem_table_t::iterator it = part->l0_->mem_table_.find(k);
-	if (it != part->l0_->mem_table_.end()) {
+	if (it != l0->mem_table_.end()) {
         /*  Acquiring the spinlock here shouldn't degrade perf/is correct:
             1)  In write_async, we do the memcpy outside the spinlock region- so perf wise,
                 spinlock shouldn't be held too long.
@@ -66,12 +55,41 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
         update_mem_entry(&entry, part->lclk_visible_);
         assert(entry.p_commit_.lclk_ <= part->lclk_visible_);
-        char* pv = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0];
+        ret = &get_kv_pair_at(part, entry.p_commit_.buf_pos_)->val_[0];
 
 		rc = pthread_spin_unlock(&entry.lock_);
         assert(rc == 0);
+	} else {
+		ret = nullptr;
+	}
+	return ret;
+}
 
-		memcpy(fill_v, pv, SHARKDB_VAL_BYTES);
+sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
+    int rc;
+
+    db_t* p_db = (db_t*) db->db_impl_;
+	size_t part_idx = get_partition(k);
+	partition_t* part = &p_db->partitions_[part_idx];
+	sharkdb_cqev cqev = db->next_cqev_++;
+
+	//	Acquires a spinlock, is this scalable?
+    //  I don't actually need the result here...
+	lclk_advance<false>(part);
+
+	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+    assert(rc == 0);
+
+	//	See my past completions- requires namespace lock to be held, for simplicity.
+	check_io(db);
+
+    //  Do memory reads synchronously, and kick off first I/O here.
+	char* v_found = do_memtable_read(part, part->l0_, k);
+	if (v_found == nullptr && part->l0_swp_ != nullptr) {
+		v_found = do_memtable_read(part, part->l0_swp_, k);
+	}
+	if (v_found != nullptr) {
+		memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
         cq_t* cq = (cq_t*) db->cq_impl_;
         //  lclk=0 suffices here, reads should become visible as soon as appear in queue.
         cq->emplace(part, 0, cqev);
@@ -105,13 +123,14 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
 		/*	A very poor form of backpressure, if we keep # in-flight requests correct,
 			shouldn't happen much. Problematic, since we do this while holding the
-			namespace lock though. */
+			namespace lock though- shouldn't be too bad though? */
 		size_t alloc_idx;
 		while (true) {
 			alloc_idx = rd_ring->free_list_.alloc();
 			if (alloc_idx != rd_ring->free_list_.TAIL_) {
 				break;
 			} else {
+				check_io(db);
 				__builtin_ia32_pause();
 			}
 		}

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 static constexpr size_t N_WRITES = 1000000;
@@ -25,6 +26,7 @@ int main() {
 	std::vector<const char*> vs_v;
 	for (size_t i = 0; i<N_WRITES/100; ++i) {
 		void* v = malloc(1000);
+		memset(v, 'A', 1000);
 		assert(v != nullptr);
 		char* vc = (char*) v;
 		vs_v.push_back((const char*) vc);
@@ -43,10 +45,12 @@ int main() {
     }
 
 	printf("After multiwrite.\n");
+	sharkdb_drain(p_db);
 
     for (size_t i = 0; i<N_WRITES; ++i) {
         sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_WRITES/100)]);
     } 
+	printf("After reads.\n");
 
     cq_received = 0;
     while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {

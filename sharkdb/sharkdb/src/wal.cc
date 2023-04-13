@@ -24,7 +24,7 @@ wal_resources_t::wal_resources_t() {
 	for (size_t i = 0; i<2*N_PARTITIONS; ++i) {
 		char path[40];
 		sprintf(&path[0], "/tmp/sharkdb/wal_%lu", i);
-		wal_fds_[i] = open((const char*) path, O_CREAT | O_APPEND | O_WRONLY | O_SYNC | O_DIRECT, S_IWUSR);
+		wal_fds_[i] = open((const char*) path, O_CREAT | O_WRONLY | O_SYNC | O_DIRECT, S_IRUSR | S_IWUSR);
 		assert(wal_fds_[i] >= 0);
         rc = posix_fallocate(wal_fds_[i], 0, log_size);
         assert(rc == 0);
@@ -173,7 +173,6 @@ void* log_thr_body(void* arg) {
                     assert(rc == 0);
 
                     //  the index of file and buffer we want to write.
-                    //  int reg_idx = part->l0_->wal_.idx_;
                     //  Ensure we only log whole blocks.
                     until /= N_ENTRIES_PER_BLOCK;
                     uint32_t p_commit = part->l0_->wal_.buf_p_commit_;

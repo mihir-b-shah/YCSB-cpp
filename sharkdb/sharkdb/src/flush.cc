@@ -11,6 +11,9 @@ static const char* make_ss_table_path(const char* prefix, char* buf, size_t part
 	return (const char*) buf;
 }
 
+//	bss is zero-init.
+static const char zero_buf[BLOCK_BYTES] = {};
+
 /*	Steps:
 	1)	l0=A,	l0_swp=null,	L1={X,Y}
 		Memtable is in W mode by users, and not touched by me.
@@ -23,11 +26,8 @@ void* flush_thr_body(void* arg) {
 	partition_t* part = (partition_t*) arg;
 
 	while (!part->db_ref_->stop_thrs_) {
-        rc = pthread_spin_lock(&part->lclk_lock_);
-        assert(rc == 0);
+		//	No need to read while locked, it's ok if we read an old (smaller) value?
 		uint32_t log_entries_used = part->l0_->wal_.buf_p_ucommit_;
-        rc = pthread_spin_unlock(&part->lclk_lock_);
-        assert(rc == 0);
 
         //  Maintain size on our own, since regular size() is not safe- not monotonic, etc.
 		if (log_entries_used >= (LOG_BUF_MAX_ENTRIES * LOG_FULL_THR)/100) {
@@ -73,9 +73,30 @@ void* flush_thr_body(void* arg) {
 				entries_wr += 1;
 			}
 
+			/*	Make sure:
+				1)	There is a fence pointer for a "top" key, so that std::upper_bound requests
+					against the fence_ptrs succeed.
+				2)	The last block is padded, if need be. */
+
+			const char* TOP_KEY_STEM = "vser00000000000000000000";
+			assert(strcmp(TOP_KEY_STEM, KEY_PREFIX) > 0 && strlen(TOP_KEY_STEM) == SHARKDB_KEY_BYTES);
+
+			if (entries_wr % N_ENTRIES_PER_BLOCK != 0) {
+				char key_buf[SHARKDB_KEY_BYTES+1];
+				strcpy(&key_buf[0], TOP_KEY_STEM);
+
+				for (size_t i = (entries_wr % N_ENTRIES_PER_BLOCK); i<N_ENTRIES_PER_BLOCK; ++i) {
+					key_buf[SHARKDB_KEY_BYTES-1] = i + '0';
+					rc = write(ss_table->fd_, &key_buf[0], SHARKDB_KEY_BYTES);
+					assert(rc == SHARKDB_KEY_BYTES);
+					rc = write(ss_table->fd_, &zero_buf[0], SHARKDB_VAL_BYTES);
+					assert(rc == SHARKDB_VAL_BYTES);
+				}
+			}
+			ss_table->fence_ptrs_.emplace_back(TOP_KEY_STEM, (entries_wr + N_ENTRIES_PER_BLOCK - 1) / N_ENTRIES_PER_BLOCK);
+
             rc = fsync(ss_table->fd_);
             assert(rc == 0);
-            
 			rc = close(ss_table->fd_);
             assert(rc == 0);
 

@@ -24,12 +24,12 @@ struct sharkdb_t {
 	sharkdb_t(void* db_impl, void* cq_impl, void* rd_ring_impl) : db_impl_(db_impl), next_cqev_(0), cq_impl_(cq_impl), rd_ring_impl_(rd_ring_impl) {}
 };
 
-// maybe add return codes later?
 sharkdb_t* sharkdb_init();
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* v);
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v);
-void sharkdb_drain(sharkdb_t* db);
 sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db);
 void sharkdb_free(sharkdb_t* db);
+// a hack that empties the completion queue, regardless of timestamps.
+void sharkdb_drain(sharkdb_t* db);
 
 #endif

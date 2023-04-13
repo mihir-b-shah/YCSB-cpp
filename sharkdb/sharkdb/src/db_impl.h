@@ -124,7 +124,6 @@ struct wal_resources_t {
 };
 
 void* log_thr_body(void* arg);
-void* io_thr_body(void* arg);
 
 struct cqe_t {
 	partition_t* part_;
@@ -170,12 +169,11 @@ struct read_ring_t {
 
 std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table);
 void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state);
+void check_io(sharkdb_t* db);
 
 //  Put stuff here I want, to coordinate io's.
 struct io_manager_t {
     pthread_mutex_t lock_;
-    std::vector<cq_t*> cq_refs_; 
-    std::vector<read_ring_t*> rd_ring_refs_; 
 
     io_manager_t() : lock_(PTHREAD_MUTEX_INITIALIZER) {}
 };
@@ -188,7 +186,6 @@ struct db_t {
 	pthread_t log_thr_;
     uint32_t l0_version_ctr_;
 	bool stop_thrs_;
-	pthread_t io_thr_;
     io_manager_t io_manager_;
 
 	db_t();
