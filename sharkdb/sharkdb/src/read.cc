@@ -4,7 +4,7 @@
 #include <sys/resource.h>
 #include <liburing.h>
 
-read_ring_t::read_ring_t(db_t* ref) : db_ref_(ref) {
+read_ring_t::read_ring_t(db_t* ref) : db_ref_(ref), n_progress_io_(0) {
     int rc;
 
     struct rlimit mlock_lim;
@@ -56,6 +56,11 @@ void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state) {
     }
 }
 
+void drain_sq_ring(read_ring_t* ring) {
+    int n_submitted = io_uring_submit(&ring->ring_);
+    assert(n_submitted >= 0);
+}
+
 static char* search_buffer(read_ring_t* ring, read_ring_t::progress_t* state) {
     for (size_t b = 0; b<state->blk_range_end_ - state->blk_range_start_; ++b) {
         for (size_t j = 0; j<N_ENTRIES_PER_BLOCK; ++j) {
@@ -85,7 +90,7 @@ void check_io(sharkdb_t* arg) {
 		if (res != nullptr) {
 			memcpy(state->user_buf_, res, SHARKDB_VAL_BYTES);
 			//  For reads, lclk=0 (i.e. always visible) is fine.
-			cq->emplace(state->part_, 0, state->cqev_);
+			cq->emplace(state->part_, 0, state->cqev_, true);
 			ring->free_list_.free(state->blk_fill_id_);
 		} else {
 			//  Value not found- continue scanning.
@@ -104,11 +109,11 @@ void check_io(sharkdb_t* arg) {
 			}
 
 			if (j == -1) {
-				print_key(state, &state->key_[0]);
-				fprintf(stderr, "blk_id:%lu failed.\n", state->blk_fill_id_);
-			}
-			assert(j > -1 && "We do not tolerate reads for keys not existing in DB, for now");
-			submit_read_io(ring, state);
+                cq->emplace(state->part_, 0, state->cqev_, false);
+			    ring->free_list_.free(state->blk_fill_id_);
+            } else {
+                submit_read_io(ring, state);
+            }
 		}
 		io_uring_cqe_seen(&ring->ring_, cqe);
 	}

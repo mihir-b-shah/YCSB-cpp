@@ -47,12 +47,6 @@ class CoreWorkload {
   static const std::string TABLENAME_DEFAULT;
 
   ///
-  /// The number of keys to request per operation. 
-  /// Note the DB will report ops/sec- we should multiply by this to get a reasonable number.
-  ///
-  static const size_t RW_KEYS_PER_OP;
-
-  ///
   /// The name of the property for the number of fields in a record.
   ///
   static const std::string FIELD_COUNT_PROPERTY;

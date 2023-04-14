@@ -15,20 +15,22 @@ namespace ycsbc {
 // just ignore table for now.
 class SharkDB : public DB {
  public:
-  void Init();
+  void Init() override;
+  void Cleanup() override;
 
-  Status Read(const std::string &table, const std::vector<std::string> &keys,
-              const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results);
+  Status Read(const std::string &table, const std::string &key,
+              const std::vector<std::string> *fields, std::vector<Field> &results);
 
   Status Scan(const std::string &table, const std::string &key, int len,
               const std::vector<std::string> *fields, std::vector<std::vector<Field>> &result);
 
-  Status Update(const std::string &table, const std::vector<std::string> &keys, std::vector<std::vector<Field>> &values);
+  Status Update(const std::string &table, const std::string &key, std::vector<Field> &values);
 
   Status Insert(const std::string &table, const std::string &key, std::vector<Field> &values);
  
  private:
-  sharkdb_p db_impl;
+  sharkdb_t* db_impl;
+  char* buf;
 };
 
 DB *NewSharkDB();

@@ -72,6 +72,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	size_t part_idx = get_partition(k);
 	partition_t* part = &p_db->partitions_[part_idx];
 	sharkdb_cqev cqev = db->next_cqev_++;
+    cq_t* cq = (cq_t*) db->cq_impl_;
 
 	//	Acquires a spinlock, is this scalable?
     //  I don't actually need the result here...
@@ -90,72 +91,77 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 	}
 	if (v_found != nullptr) {
 		memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
-        cq_t* cq = (cq_t*) db->cq_impl_;
         //  lclk=0 suffices here, reads should become visible as soon as appear in queue.
-        cq->emplace(part, 0, cqev);
-		return cqev;
-	}
+        cq->emplace(part, 0, cqev, true);
+	} else {
+        /*  Scan bloom filters in order, until I find a match.
+            Issue a read for the range of blocks the fence ptr tells me about.
+            In the read, provide info in user_data field about until where we searched,
+            so on completion, we can leave off from where we started.
 
-    /*  Scan bloom filters in order, until I find a match.
-        Issue a read for the range of blocks the fence ptr tells me about.
-        In the read, provide info in user_data field about until where we searched,
-        so on completion, we can leave off from where we started.
+            It is safe to release namespace locks between such scans, since namespace
+            modifications (i.e. just flushing for now) have the property, they move memtable
+            to disk. But since we already know which memtable we start on, and work backwards,
+            the additions are happening to our right, and as such we view a consistent prefix
+            of sstables. */
 
-        It is safe to release namespace locks between such scans, since namespace
-        modifications (i.e. just flushing for now) have the property, they move memtable
-        to disk. But since we already know which memtable we start on, and work backwards,
-        the additions are happening to our right, and as such we view a consistent prefix
-        of sstables. */
+        assert((part->disk_levels_[0].size() == 0) && "L0 is not on disk");
+        for (size_t l = 2; l<=N_DISK_LEVELS; ++l) {
+            assert((part->disk_levels_[l].size() == 0) && "Not doing compaction right now");
+        }
 
-    assert((part->disk_levels_[0].size() == 0) && "L0 is not on disk");
-    for (size_t l = 2; l<=N_DISK_LEVELS; ++l) {
-        assert((part->disk_levels_[l].size() == 0) && "Not doing compaction right now");
+        ssize_t i;
+        for (i = (ssize_t) part->disk_levels_[1].size()-1; i>=0; --i) {
+            ss_table_t* ss_table = part->disk_levels_[1][i];
+            std::pair<size_t, size_t> range = get_ss_blk_range(k, ss_table);
+            if (range == std::pair<size_t, size_t>(0,0)) {
+                continue;
+            }
+            read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
+
+            /*	A very poor form of backpressure, if we keep # in-flight requests correct,
+                shouldn't happen much. Problematic, since we do this while holding the
+                namespace lock though- shouldn't be too bad though? */
+            size_t alloc_idx;
+            bool first_loop = true; 
+            while (true) {
+                alloc_idx = rd_ring->free_list_.alloc();
+                if (alloc_idx != rd_ring->free_list_.TAIL_) {
+                    break;
+                } else {
+                    if (first_loop) {
+                        drain_sq_ring(rd_ring);
+                        first_loop = false;
+                    }
+                    check_io(db);
+                    __builtin_ia32_pause();
+                }
+            }
+
+            read_ring_t::progress_t* prog_state = &rd_ring->progress_states_[alloc_idx];
+            prog_state->part_ = part;
+            prog_state->level_ = 1;
+            prog_state->ss_table_id_ = i;
+            memcpy(&prog_state->key_[0], k, SHARKDB_KEY_BYTES);
+            prog_state->blk_fill_id_ = alloc_idx;
+            prog_state->user_buf_ = fill_v;
+            prog_state->cqev_ = cqev;
+            prog_state->fd_ = ss_table->fd_;
+            prog_state->blk_range_start_ = range.first; 
+            prog_state->blk_range_end_ = range.second;
+
+            //  Take the hit of the first I/O submit on the user thread
+            submit_read_io(rd_ring, prog_state);
+            break;
+        }
+
+        //	If matched nothing- note bloom filters have no false negatives, so really nothing.
+        if (i == -1) {
+            cq->emplace(part, 0, cqev, false);
+        }
     }
 
-    ssize_t i;
-	for (i = (ssize_t) part->disk_levels_[1].size()-1; i>=0; --i) {
-		ss_table_t* ss_table = part->disk_levels_[1][i];
-		std::pair<size_t, size_t> range = get_ss_blk_range(k, ss_table);
-		if (range == std::pair<size_t, size_t>(0,0)) {
-			continue;
-		}
-		read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
-
-		/*	A very poor form of backpressure, if we keep # in-flight requests correct,
-			shouldn't happen much. Problematic, since we do this while holding the
-			namespace lock though- shouldn't be too bad though? */
-		size_t alloc_idx;
-		while (true) {
-			alloc_idx = rd_ring->free_list_.alloc();
-			if (alloc_idx != rd_ring->free_list_.TAIL_) {
-				break;
-			} else {
-				check_io(db);
-				__builtin_ia32_pause();
-			}
-		}
-
-		read_ring_t::progress_t* prog_state = &rd_ring->progress_states_[alloc_idx];
-        prog_state->part_ = part;
-		prog_state->level_ = 1;
-		prog_state->ss_table_id_ = i;
-		memcpy(&prog_state->key_[0], k, SHARKDB_KEY_BYTES);
-		prog_state->blk_fill_id_ = alloc_idx;
-		prog_state->user_buf_ = fill_v;
-		prog_state->cqev_ = cqev;
-        prog_state->fd_ = ss_table->fd_;
-        prog_state->blk_range_start_ = range.first; 
-        prog_state->blk_range_end_ = range.second;
-
-        //  Take the hit of the first I/O submit on the user thread
-		submit_read_io(rd_ring, prog_state);
-		break;
-	}
-
-	//	If matched nothing- note bloom filters have no false negatives, so really nothing.
-	assert(i > -1 && "We do not tolerate reads for keys not existing in DB, for now");
-
-	rc = pthread_rwlock_unlock(&part->namespace_lock_);
+    rc = pthread_rwlock_unlock(&part->namespace_lock_);
     assert(rc == 0);
 	return cqev;
 }
@@ -166,6 +172,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
     int rc;
 
 	partition_t* part = &p_db->partitions_[get_partition(k)];
+
 	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
     assert(rc == 0);
 
@@ -212,7 +219,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
     assert(rc == 0);
 
 	cq_t* cq = (cq_t*) db->cq_impl_;
-	cq->emplace(part, my_lclk, cqev);
+	cq->emplace(part, my_lclk, cqev, true);
 
 	rc = pthread_rwlock_unlock(&part->namespace_lock_);
     assert(rc == 0);

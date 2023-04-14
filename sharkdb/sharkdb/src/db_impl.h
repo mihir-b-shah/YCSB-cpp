@@ -129,9 +129,10 @@ struct cqe_t {
 	partition_t* part_;
 	uint64_t lclk_visible_;
 	sharkdb_cqev ev_;
+    bool success_;
 
-	cqe_t(partition_t* part, uint64_t lclk, sharkdb_cqev ev) 
-		: part_(part), lclk_visible_(lclk), ev_(ev) {}
+	cqe_t(partition_t* part, uint64_t lclk, sharkdb_cqev ev, bool success) 
+		: part_(part), lclk_visible_(lclk), ev_(ev), success_(success) {}
 };
 typedef std::queue<cqe_t> cq_t;
 
@@ -162,6 +163,7 @@ struct read_ring_t {
     io_uring ring_;
     db_t* db_ref_;
     free_list_t free_list_;
+    size_t n_progress_io_;
 
     read_ring_t(db_t* ref);
     ~read_ring_t();
@@ -169,6 +171,7 @@ struct read_ring_t {
 
 std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table);
 void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state);
+void drain_sq_ring(read_ring_t* ring);
 void check_io(sharkdb_t* db);
 
 //  Put stuff here I want, to coordinate io's.

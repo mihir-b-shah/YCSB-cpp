@@ -34,6 +34,7 @@ partition_t::partition_t(size_t tid, db_t* ref) : tid_(tid), l0_swp_(nullptr), d
     l0_ = new level_0_t(db_ref_);
     /*  Tells pthread we don't recursively acquire read lock, and to give writers priority (since
         this is a queued lock (I think?). This should prevent livelock of the flushing thread */
+
     rc = pthread_rwlockattr_setkind_np(&namespace_lock_attrs_, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
     assert(rc == 0);
 
@@ -137,14 +138,14 @@ sharkdb_t* sharkdb_init() {
     return new sharkdb_t(db_instance, cq, rd_ring);
 }
 
-sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db) {
+std::pair<bool, sharkdb_cqev> sharkdb_cpoll_cq(sharkdb_t* db) {
 	cq_t* cq = (cq_t*) db->cq_impl_;
 	cqe_t cqe = cq->front();
 	if (cqe.lclk_visible_ <= cqe.part_->lclk_visible_) {
         cq->pop();
-        return cqe.ev_;
+        return {cqe.success_, cqe.ev_};
     } else {
-        return SHARKDB_CQEV_FAIL;
+        return {true, SHARKDB_CQEV_FAIL};
     }
 }
 

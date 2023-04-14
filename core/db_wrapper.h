@@ -30,10 +30,10 @@ class DBWrapper : public DB {
   void Cleanup() {
     db_->Cleanup();
   }
-  Status Read(const std::string &table, const std::vector<std::string> &keys,
-              const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results) {
+  Status Read(const std::string &table, const std::string &key,
+              const std::vector<std::string> *fields, std::vector<Field> &result) {
     timer_.Start();
-    Status s = db_->Read(table, keys, fields, results);
+    Status s = db_->Read(table, key, fields, result);
     uint64_t elapsed = timer_.End();
     if (s == kOK) {
       measurements_->Report(READ, elapsed);
@@ -54,9 +54,9 @@ class DBWrapper : public DB {
     }
     return s;
   }
-  Status Update(const std::string &table, const std::vector<std::string> &keys, std::vector<std::vector<Field>> &values) {
+  Status Update(const std::string &table, const std::string &key, std::vector<Field> &values) {
     timer_.Start();
-    Status s = db_->Update(table, keys, values);
+    Status s = db_->Update(table, key, values);
     uint64_t elapsed = timer_.End();
     if (s == kOK) {
       measurements_->Report(UPDATE, elapsed);

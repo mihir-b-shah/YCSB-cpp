@@ -38,8 +38,9 @@ int main() {
 
     size_t cq_received = 0;
     while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {
-        sharkdb_cqev ev = sharkdb_cpoll_cq(p_db);
-        if (ev != SHARKDB_CQEV_FAIL) {
+        std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
+        assert(ev.first);
+        if (ev.second != SHARKDB_CQEV_FAIL) {
             cq_received += 1;
         }
     }
@@ -54,8 +55,9 @@ int main() {
 
     cq_received = 0;
     while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {
-        sharkdb_cqev ev = sharkdb_cpoll_cq(p_db);
-        if (ev != SHARKDB_CQEV_FAIL) {
+        std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
+        assert(ev.first);
+        if (ev.second != SHARKDB_CQEV_FAIL) {
             cq_received += 1;
         }
     }

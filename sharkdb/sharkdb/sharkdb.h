@@ -4,7 +4,7 @@
 
 #include <cstddef>
 #include <vector>
-#include <unordered_map>
+#include <utility>
 
 #define SHARKDB_KEY_BYTES 24
 #define SHARKDB_VAL_BYTES 1000
@@ -27,7 +27,7 @@ struct sharkdb_t {
 sharkdb_t* sharkdb_init();
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* v);
 sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v);
-sharkdb_cqev sharkdb_cpoll_cq(sharkdb_t* db);
+std::pair<bool, sharkdb_cqev> sharkdb_cpoll_cq(sharkdb_t* db);
 void sharkdb_free(sharkdb_t* db);
 // a hack that empties the completion queue, regardless of timestamps.
 void sharkdb_drain(sharkdb_t* db);

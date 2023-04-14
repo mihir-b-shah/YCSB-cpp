@@ -32,11 +32,9 @@ class LeveldbDB : public DB {
 
   void Cleanup();
 
-  Status Read(const std::string &table, const std::vector<std::string> &keys,
-              const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results) {
-    // Do not call LevelDB with vectored R/W, use more threads.
-    assert(keys.size() == 1);
-    return (this->*(method_read_))(table, keys[0], fields, results[0]);
+  Status Read(const std::string &table, const std::string &key,
+              const std::vector<std::string> *fields, std::vector<Field> &results) {
+    return (this->*(method_read_))(table, key, fields, results);
   }
 
   Status Scan(const std::string &table, const std::string &key, int len,
@@ -44,9 +42,8 @@ class LeveldbDB : public DB {
     return (this->*(method_scan_))(table, key, len, fields, result);
   }
 
-  Status Update(const std::string &table, const std::vector<std::string> &keys, std::vector<std::vector<Field>> &values) {
-    assert(keys.size() == 1);
-    return (this->*(method_update_))(table, keys[0], values[0]);
+  Status Update(const std::string &table, const std::string &key, std::vector<Field> &values) {
+    return (this->*(method_update_))(table, key, values);
   }
 
   Status Insert(const std::string &table, const std::string &key, std::vector<Field> &values) {

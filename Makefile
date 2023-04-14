@@ -17,7 +17,7 @@ BIND_LEVELDB ?= 1
 # Extra options
 DEBUG_BUILD ?= 0
 EXTRA_CXXFLAGS ?= -I./leveldb/leveldb/include -I./sharkdb/sharkdb
-EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -Wl,-rpath=./sharkdb/sharkdb/build -lsnappy
+EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -Wl,-rpath=./sharkdb/sharkdb/build -lsnappy -L./sharkdb/sharkdb/liburing/lib -Wl,-rpath=./sharkdb/sharkdb/liburing/lib -luring
 
 #----------------------------------------------------------
 
@@ -45,10 +45,7 @@ OBJECTS += $(SOURCES:.cc=.o)
 DEPS += $(SOURCES:.cc=.d)
 EXEC = ycsb
 
-all: make_dep $(EXEC)
-
-make_dep:
-	make -C sharkdb/sharkdb/
+all: $(EXEC)
 
 $(EXEC): $(OBJECTS)
 	@$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@

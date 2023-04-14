@@ -18,17 +18,32 @@ static const char* FIELD_NAME = "field0";
 namespace ycsbc {
 
 void SharkDB::Init() {
-    this->db_impl = sharkdb_init();
+  this->buf = new char[SHARKDB_VAL_BYTES];
+  this->db_impl = sharkdb_init();
 }
 
-DB::Status SharkDB::Read(const std::string &table, const std::vector<std::string> &keys,
-                         const std::vector<std::string> *fields, std::vector<std::vector<Field>> &results) {
-  /*
-  assert(key.size() == SHARKDB_KEY_SIZE && fields == NULL && result.size() == 0);
-  result.emplace_back();
-  result[0].name = FIELD_NAME;
-  sharkdb_read(this->db_impl, key, result[0].value);
-  */
+void SharkDB::Cleanup() {
+  std::pair<bool, sharkdb_cqev> pr;
+  size_t n_cq_polled = 0;
+  do  {
+    n_cq_polled += 1;
+  } while ((pr = sharkdb_cpoll_cq(this->db_impl)).second != SHARKDB_CQEV_FAIL);
+  printf("n_cq_polled: %lu\n", n_cq_polled);
+
+  sharkdb_drain(this->db_impl);
+  delete[] this->buf;
+  sharkdb_free(this->db_impl);
+}
+
+DB::Status SharkDB::Read(const std::string &table, const std::string &key,
+                         const std::vector<std::string> *fields, std::vector<Field> &results) {
+  assert(key.size() == SHARKDB_KEY_BYTES && fields == NULL && results.size() == 0);
+  results.emplace_back();
+  results[0].name = FIELD_NAME;
+  results[0].value = std::string(this->buf, SHARKDB_VAL_BYTES);
+  /*    Technically have sharkdb read into this buffer, that way I don't have to manage string
+        object mallocs. */
+  sharkdb_read_async(this->db_impl, key.data(), this->buf);
   return kOK;
 }
 
@@ -38,21 +53,16 @@ DB::Status SharkDB::Scan(const std::string &table, const std::string &key, int l
   return kNotImplemented;
 }
 
-DB::Status SharkDB::Update(const std::string &table, const std::vector<std::string> &keys,
-                           std::vector<std::vector<Field>> &values) {
-  /*
-  assert(key.size() == SHARKDB_KEY_SIZE && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_SIZE);
-  sharkdb_update(this->db_impl, key, std::move(values[0].value));
-  */
+DB::Status SharkDB::Update(const std::string &table, const std::string &key, std::vector<Field> &values) {
+  assert(key.size() == SHARKDB_KEY_BYTES && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_BYTES);
+  sharkdb_write_async(this->db_impl, key.data(), values[0].value.data());
   return kOK;
 }
 
 DB::Status SharkDB::Insert(const std::string &table, const std::string &key,
                            std::vector<Field> &values) {
-  /*
-  assert(key.size() == SHARKDB_KEY_SIZE && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_SIZE);
-  sharkdb_insert(this->db_impl, key, std::move(values[0].value));
-  */
+  assert(key.size() == SHARKDB_KEY_BYTES && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_BYTES);
+  sharkdb_write_async(this->db_impl, key.data(), values[0].value.data());
   return kOK;
 }
 
