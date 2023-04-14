@@ -24,6 +24,7 @@ static const char zero_buf[BLOCK_BYTES] = {};
 void* flush_thr_body(void* arg) {
     int rc;
 	partition_t* part = (partition_t*) arg;
+    get_stats()->thr_name_ = "flush_thread";
 
 	while (!part->db_ref_->stop_thrs_) {
 		//	No need to read while locked, it's ok if we read an old (smaller) value?
@@ -36,8 +37,7 @@ void* flush_thr_body(void* arg) {
 
             /*  we can safely read l0_ before acquiring the lock here, since THIS THREAD is the only
                 one that can swap l0_'s, etc */
-			rc = pthread_rwlock_wrlock(&part->namespace_lock_);
-            assert(rc == 0);
+            pthread_rwlock_lock_wrap<TEMPL_IS_WRITE>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
 			part->l0_swp_ = l0_flush;
 			part->l0_ = l0_new;
@@ -103,8 +103,7 @@ void* flush_thr_body(void* arg) {
 			ss_table->fd_ = open(ss_table_path, O_RDONLY | O_DIRECT, S_IRUSR);
 			assert(ss_table->fd_ >= 0);
 
-			rc = pthread_rwlock_wrlock(&part->namespace_lock_);
-            assert(rc == 0);
+            pthread_rwlock_lock_wrap<TEMPL_IS_WRITE>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
 			part->l0_swp_ = nullptr;
 			part->disk_levels_[1].push_back(ss_table);

@@ -16,11 +16,17 @@
 #include <queue>
 #include <utility>
 #include <cstring>
+#include <ctime>
 #include <pthread.h>
 #include <errno.h>
 #include <liburing.h>
 #include <sys/uio.h>
 #include <tbb/concurrent_map.h>
+
+enum templ_rw_arg_e {
+    TEMPL_IS_READ,
+    TEMPL_IS_WRITE,
+};
 
 struct db_t;
 
@@ -151,6 +157,8 @@ struct read_ring_t {
 		size_t blk_fill_id_;
 		char* user_buf_;
 		sharkdb_cqev cqev_;
+        uint64_t submit_ts_ns_;
+        uint64_t submit_ts_single_ns_;
 
         // just some utilities for submit_read_io.
         int fd_;
@@ -194,5 +202,49 @@ struct db_t {
 	db_t();
 	~db_t();
 };
+
+struct stats_t {
+    stats_t();
+    ~stats_t();
+
+    const char* thr_name_;
+    uint32_t n_reads_;
+    uint32_t n_reads_io_;
+    std::vector<uint64_t> t_read_io_ns_;
+    std::vector<uint64_t> t_read_io_single_ns_;
+    std::vector<uint64_t> t_contend_namesp_ns_;
+};
+stats_t* get_stats();
+
+static inline uint64_t get_ts_nsecs() {
+    struct timespec ts;
+    int rc = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(rc == 0);
+    return ((uint64_t) ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
+}
+
+template <templ_rw_arg_e OP_TYPE>
+static inline void pthread_rwlock_lock_wrap(pthread_rwlock_t* lock, std::vector<uint64_t>& ts_append) {
+    #if defined(INSTR)
+    ts_append.push_back(0);
+    asm volatile ("" ::: "memory");
+    uint64_t before_lock_ts = get_ts_nsecs();
+    #endif
+
+    int rc;
+    if constexpr (OP_TYPE == TEMPL_IS_WRITE) {
+        rc = pthread_rwlock_wrlock(lock);
+    } else {
+        rc = pthread_rwlock_rdlock(lock);
+    }
+    assert(rc == 0);
+
+    #if defined(INSTR)
+    ts_append.back() = get_ts_nsecs() - before_lock_ts;
+    #else
+    //  To silence unused variable error?
+    (void) ts_append;
+    #endif
+}
 
 #endif

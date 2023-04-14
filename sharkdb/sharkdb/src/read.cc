@@ -42,6 +42,14 @@ read_ring_t::~read_ring_t() {
 }
 
 void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state) {
+    #if defined(INSTR)
+    get_stats()->n_reads_io_ += 1;
+    #endif
+
+    #if defined(INSTR)
+    prog_state->submit_ts_single_ns_ = get_ts_nsecs();
+    #endif
+
     struct io_uring_sqe* sqe = io_uring_get_sqe(&ring->ring_);
     
     void* p = (void*) &ring->buffers_[prog_state->blk_fill_id_];
@@ -81,13 +89,23 @@ void check_io(sharkdb_t* arg) {
 
     struct io_uring_cqe* cqe;
 	rc = io_uring_peek_cqe(&ring->ring_, &cqe);
+
 	if (rc == 0) {
 		read_ring_t::progress_t* state = (read_ring_t::progress_t*) io_uring_cqe_get_data(cqe);
+
+        #if defined(INSTR)
+        get_stats()->t_read_io_single_ns_.push_back(get_ts_nsecs() - state->submit_ts_single_ns_);
+        #endif
+
 		size_t n_read = (state->blk_range_end_ - state->blk_range_start_) * BLOCK_BYTES;
 		assert(cqe->res == (int) n_read);
 		char* res = search_buffer(ring, state);
 
 		if (res != nullptr) {
+            #if defined(INSTR)
+            get_stats()->t_read_io_ns_.push_back(get_ts_nsecs() - state->submit_ts_ns_);
+            #endif
+
 			memcpy(state->user_buf_, res, SHARKDB_VAL_BYTES);
 			//  For reads, lclk=0 (i.e. always visible) is fine.
 			cq->emplace(state->part_, 0, state->cqev_, true);

@@ -1,6 +1,7 @@
 
 #include "db_impl.h"
 #include <thread>
+#include <algorithm>
 
 /*	TODO need to implement some form of draining:
 	1) we buffer calls before doing io_uring_submit.
@@ -125,8 +126,10 @@ sharkdb_t* sharkdb_init() {
 		atexit(free_db_instance);
 		db_instance = new db_t();
 	});
+
     cq_t* cq = new cq_t();
     read_ring_t* rd_ring = new read_ring_t(db_instance);
+    get_stats()->thr_name_ = "user_thread";
 
 	//	Use a mutex since we might want to add more stuff in here.
     rc = pthread_mutex_lock(&db_instance->io_manager_.lock_);
@@ -161,4 +164,50 @@ void sharkdb_drain(sharkdb_t* db) {
 	while (!cq->empty()) {
 		cq->pop();
 	}
+}
+
+//  Stats code
+stats_t::stats_t() : thr_name_(nullptr), n_reads_(0), n_reads_io_(0) {
+    //  do I need to reserve space in t_read vectors?
+}
+
+static constexpr int PRBUF_BYTES = 200;
+
+[[maybe_unused]]
+static void fill_latency_stats(std::vector<uint64_t>& times, char* fill) {
+    int rc;
+    if (times.size() == 0) {
+        rc = sprintf(fill, "n: 0");
+    } else {
+        std::sort(times.begin(), times.end());
+        rc = sprintf(fill, "n: %lu, [1%%: %lu, 10%%: %lu, 50%%: %lu, 90%%: %lu, 99%%: %lu, 99.9%%: %lu, 99.99%%: %lu]", times.size(), times[times.size()/100], times[times.size()/10], times[times.size()/2], times[times.size()*9/10], times[times.size()*99/100], times[times.size()*999/1000], times[times.size()*9999/10000]);
+    }
+    assert(rc < PRBUF_BYTES);
+}
+
+stats_t::~stats_t() {
+    #if defined(INSTR)
+    char t_io_buf[PRBUF_BYTES];
+    fill_latency_stats(t_read_io_ns_, &t_io_buf[0]);
+    char t_io_single_buf[PRBUF_BYTES];
+    fill_latency_stats(t_read_io_single_ns_, &t_io_single_buf[0]);
+    char t_contend_namesp_buf[PRBUF_BYTES];
+    fill_latency_stats(t_contend_namesp_ns_, &t_contend_namesp_buf[0]);
+
+    fprintf(stderr,
+        "thr_name: %s\n"
+        "n_reads: %u\n"
+        "n_reads_io: %u\n"
+        "t_read_io_ns: %s\n"
+        "t_read_io_single_ns: %s\n"
+        "t_contend_namesp_ns: %s\n"
+        "\n",
+        thr_name_, n_reads_, n_reads_io_, &t_io_buf[0], &t_io_single_buf[0], &t_contend_namesp_buf[0]);
+
+    #endif
+}
+
+stats_t* get_stats() {
+    static thread_local stats_t stats_;
+    return &stats_;
 }

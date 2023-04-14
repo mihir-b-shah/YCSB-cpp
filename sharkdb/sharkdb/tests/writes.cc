@@ -53,6 +53,6 @@ int main() {
 		free((void*) v);
 	}
 
-    printf("Done!\n");
+    printf("Done!\n\n");
     return 0;
 }

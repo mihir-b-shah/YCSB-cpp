@@ -125,14 +125,16 @@ void* log_thr_body(void* arg) {
     bool do_backpressure = false;
     bool did_backpressure_locks = false;
 
+    get_stats()->thr_name_ = "log_thread";
+
     while (!db->stop_thrs_) {
         _loop_head:
         if (do_backpressure) {
             if (!did_backpressure_locks) {
                 for (size_t i = 0; i<N_PARTITIONS; ++i) {
                     partition_t* part = &db->partitions_[i];
-                    rc = pthread_rwlock_wrlock(&part->namespace_lock_);
-                    assert(rc == 0);
+
+                    pthread_rwlock_lock_wrap<TEMPL_IS_WRITE>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
                 }
                 did_backpressure_locks = true;
             }
@@ -140,8 +142,7 @@ void* log_thr_body(void* arg) {
             for (size_t i = 0; i<N_PARTITIONS; ++i) {
                 partition_t* part = &db->partitions_[i];
 
-                rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-                assert(rc == 0);
+                pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
                 //  check if we need to sync to log...
                 uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
@@ -162,15 +163,13 @@ void* log_thr_body(void* arg) {
                         the contents of the buffer- since the memcpy actions have happened,
                         and by ACQ_REL semantics of a rdlock, they have been flushed to memory. */
 
-                    rc = pthread_rwlock_wrlock(&part->namespace_lock_);
-                    assert(rc == 0);
+                    pthread_rwlock_lock_wrap<TEMPL_IS_WRITE>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
                     uint64_t lclk = part->lclk_next_;
                     uint32_t until = part->l0_->wal_.buf_p_ucommit_;
                     rc = pthread_rwlock_unlock(&part->namespace_lock_);
                     assert(rc == 0);
 
-                    rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-                    assert(rc == 0);
+                    pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
                     //  the index of file and buffer we want to write.
                     //  Ensure we only log whole blocks.

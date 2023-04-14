@@ -1,3 +1,4 @@
 build/
 liburing/
 logs/
+bench/*.run

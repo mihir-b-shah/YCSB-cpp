@@ -17,7 +17,7 @@ static kv_pair_t* get_kv_pair_at(partition_t* part, uint32_t buf_spot) {
 	return &part->l0_->wal_.log_buffer_[block_spot].kvs_[block_idx];
 }
 
-template <bool IS_WRITE>
+template <templ_rw_arg_e OP_TYPE>
 static std::pair<uint64_t, uint32_t> lclk_advance(partition_t* part) {
 	std::pair<uint64_t, uint32_t> ret;
 	int rc;
@@ -25,7 +25,7 @@ static std::pair<uint64_t, uint32_t> lclk_advance(partition_t* part) {
     assert(rc == 0);
 
     ret.first = part->lclk_next_++;
-	if (IS_WRITE) {
+	if (OP_TYPE == TEMPL_IS_WRITE) {
 		ret.second = part->l0_->wal_.buf_p_ucommit_++;
 	}
 
@@ -68,6 +68,10 @@ static char* do_memtable_read(partition_t* part, level_0_t* l0, const char* k) {
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
     int rc;
 
+    #if defined(INSTR)
+    get_stats()->n_reads_ += 1;
+    #endif
+
     db_t* p_db = (db_t*) db->db_impl_;
 	size_t part_idx = get_partition(k);
 	partition_t* part = &p_db->partitions_[part_idx];
@@ -76,10 +80,9 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 
 	//	Acquires a spinlock, is this scalable?
     //  I don't actually need the result here...
-	lclk_advance<false>(part);
+	lclk_advance<TEMPL_IS_READ>(part);
 
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-    assert(rc == 0);
+    pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
 	//	See my past completions- requires namespace lock to be held, for simplicity.
 	check_io(db);
@@ -150,6 +153,10 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
             prog_state->blk_range_start_ = range.first; 
             prog_state->blk_range_end_ = range.second;
 
+            #if defined(INSTR)
+            prog_state->submit_ts_ns_ = get_ts_nsecs();
+            #endif
+
             //  Take the hit of the first I/O submit on the user thread
             submit_read_io(rd_ring, prog_state);
             break;
@@ -173,25 +180,27 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
 	partition_t* part = &p_db->partitions_[get_partition(k)];
 
-	rc = pthread_rwlock_rdlock(&part->namespace_lock_);
-    assert(rc == 0);
+    pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
     uint64_t my_lclk;
     uint32_t buf_spot;
     while (true) {
         //  Again, poor man's backpressure
-        std::pair<uint64_t, uint32_t> la_res = lclk_advance<true>(part);
+        std::pair<uint64_t, uint32_t> la_res = lclk_advance<TEMPL_IS_WRITE>(part);
         my_lclk = la_res.first;
         buf_spot = la_res.second;
         if (buf_spot >= LOG_BUF_MAX_ENTRIES) {
             level_0_t* l0_old_ = part->l0_;
             rc = pthread_rwlock_unlock(&part->namespace_lock_);
+            assert(rc == 0);
+
             //  Wait for the l0_ to change (i.e. it is swapped out)
             while (part->l0_ == l0_old_) {
                 __builtin_ia32_pause();
             }
 
-            rc = pthread_rwlock_rdlock(&part->namespace_lock_);
+            //  Note this is a write operation, but we are only reading the namespace.
+            pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
         } else {
             break;
         }
