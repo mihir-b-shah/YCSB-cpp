@@ -134,7 +134,6 @@ void* log_thr_body(void* arg) {
                     rc = pthread_rwlock_wrlock(&part->namespace_lock_);
                     assert(rc == 0);
                 }
-                fprintf(stderr, "Acquire backpressure locks.\n");
                 did_backpressure_locks = true;
             }
         } else {
