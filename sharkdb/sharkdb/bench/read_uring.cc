@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdio>
+#include <cstddef>
 #include <cassert>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -13,6 +14,46 @@ static uint64_t get_micros(struct timespec ts) {
 
 static constexpr size_t BLOCK_BYTES = 4096;
 static constexpr size_t N_OPS = 100000;
+static constexpr size_t WINDOW_SIZE = 256;
+
+struct free_list_t {
+	const size_t TAIL_;
+	size_t head_;
+	//  Just implement in a threaded fashion to avoid allocations.
+	size_t* tlist_;
+
+	free_list_t(size_t pool_size) : TAIL_(pool_size), head_(0) {
+		tlist_ = new size_t[pool_size];
+		for (size_t i = 0; i<pool_size-1; ++i) {
+			tlist_[i] = i+1;
+		}
+		tlist_[pool_size-1] = TAIL_;
+    }
+
+	~free_list_t() {
+		if (tlist_ != nullptr) {
+			delete[] tlist_;
+		}
+	}
+
+	size_t alloc() {
+        size_t ret;
+		if (head_ == TAIL_) {
+			//	out of slots
+			ret = TAIL_;
+		} else {
+            size_t next = tlist_[head_];
+            ret = head_;
+            head_ = next;
+        }
+		return ret;
+	}
+
+	void free(size_t slot) {
+		tlist_[slot] = head_;
+		head_ = slot;
+	}
+};
 
 int main() {
     int rc;
@@ -31,44 +72,53 @@ int main() {
     assert(rc == 0);
 
     struct io_uring ring;
-    rc = io_uring_queue_init(16, &ring, IORING_SETUP_IOPOLL);
+    //  For now, just one syscall per io.
+    rc = io_uring_queue_init(1, &ring, 0);
     assert(rc == 0);
 
+    //  Just pass same buffer to avoid a free_list.
     struct iovec ivec = (struct iovec) {buffers_base, BLOCK_BYTES};
     rc = io_uring_register_buffers(&ring, &ivec, 1);
     assert(rc == 0);
 
+    //  Submission, completion ptrs.
+    //  For now, let's submit every i/o in a separate syscall.
+    size_t sp = 0;
+    size_t cp = 0;
     std::vector<uint64_t> times(N_OPS);
-    for (size_t i = 0; i<N_OPS; ++i) {
-        struct timespec ts_start;
-        rc = clock_gettime(CLOCK_MONOTONIC, &ts_start);
-        assert(rc == 0);
 
-        struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
-        uint64_t offset = (rand() % n_blocks) * BLOCK_BYTES;
+    while (cp < N_OPS) {
+        //  Check if there is work left and space in window.
+        if (sp < N_OPS && sp-cp < WINDOW_SIZE) {
+            struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+            uint64_t offset = (rand() % n_blocks) * BLOCK_BYTES;
+            io_uring_prep_read_fixed(sqe, fd, buffers_base, BLOCK_BYTES, offset, 0);
+            io_uring_sqe_set_data64(sqe, sp);
 
-        io_uring_prep_read_fixed(sqe, fd, buffers_base, BLOCK_BYTES, offset, 0);
-        int n_submitted = io_uring_submit(&ring);
-        assert(n_submitted == 1);
+            struct timespec ts_start;
+            rc = clock_gettime(CLOCK_MONOTONIC, &ts_start);
+            assert(rc == 0);
+            times[sp] = get_micros(ts_start);
+
+            int n_submitted = io_uring_submit(&ring);
+            assert(n_submitted == 1);
+            sp += 1;
+        }
 
         struct io_uring_cqe* cqe;
-        /*
-        // TODO try out io_uring_wait_cqe_nr(..., 0) to use wait api but not block.
+        rc = io_uring_peek_cqe(&ring, &cqe);
+        if (rc == 0) {
+            assert(cqe->res == BLOCK_BYTES);
+            size_t slot = io_uring_cqe_get_data64(cqe);
 
-        do {
-            rc = io_uring_peek_cqe(&ring, &cqe);
-        } while (rc != 0);
-        */
-        rc = io_uring_wait_cqe(&ring, &cqe);
-        printf("res: %d\n", cqe->res);
-        assert(cqe->res == BLOCK_BYTES);
-        io_uring_cqe_seen(&ring, cqe);
+            struct timespec ts_end;
+            rc = clock_gettime(CLOCK_MONOTONIC, &ts_end);
+            assert(rc == 0);
+            times[slot] = get_micros(ts_end) - times[slot];
 
-        struct timespec ts_end;
-        rc = clock_gettime(CLOCK_MONOTONIC, &ts_end);
-        assert(rc == 0);
-
-        times[i] = get_micros(ts_end) - get_micros(ts_start);
+            io_uring_cqe_seen(&ring, cqe);
+            cp += 1;
+        }
     }
 
     std::sort(times.begin(), times.end());
