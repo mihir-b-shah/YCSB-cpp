@@ -13,47 +13,8 @@ static uint64_t get_micros(struct timespec ts) {
 }
 
 static constexpr size_t BLOCK_BYTES = 4096;
-static constexpr size_t N_OPS = 100000;
-static constexpr size_t WINDOW_SIZE = 256;
-
-struct free_list_t {
-	const size_t TAIL_;
-	size_t head_;
-	//  Just implement in a threaded fashion to avoid allocations.
-	size_t* tlist_;
-
-	free_list_t(size_t pool_size) : TAIL_(pool_size), head_(0) {
-		tlist_ = new size_t[pool_size];
-		for (size_t i = 0; i<pool_size-1; ++i) {
-			tlist_[i] = i+1;
-		}
-		tlist_[pool_size-1] = TAIL_;
-    }
-
-	~free_list_t() {
-		if (tlist_ != nullptr) {
-			delete[] tlist_;
-		}
-	}
-
-	size_t alloc() {
-        size_t ret;
-		if (head_ == TAIL_) {
-			//	out of slots
-			ret = TAIL_;
-		} else {
-            size_t next = tlist_[head_];
-            ret = head_;
-            head_ = next;
-        }
-		return ret;
-	}
-
-	void free(size_t slot) {
-		tlist_[slot] = head_;
-		head_ = slot;
-	}
-};
+static constexpr size_t N_OPS = 1000000;
+static constexpr size_t WINDOW_SIZE = 64;
 
 int main() {
     int rc;
@@ -86,6 +47,10 @@ int main() {
     size_t sp = 0;
     size_t cp = 0;
     std::vector<uint64_t> times(N_OPS);
+
+    struct timespec ts_begin;
+    rc = clock_gettime(CLOCK_MONOTONIC, &ts_begin);
+    assert(rc == 0);
 
     while (cp < N_OPS) {
         //  Check if there is work left and space in window.
@@ -120,6 +85,12 @@ int main() {
             cp += 1;
         }
     }
+
+    struct timespec ts_final;
+    rc = clock_gettime(CLOCK_MONOTONIC, &ts_final);
+    assert(rc == 0);
+
+    printf("total time: %lu\n", get_micros(ts_final) - get_micros(ts_begin));
 
     std::sort(times.begin(), times.end());
     printf("1%%: %lu, 10%%: %lu, 50%%: %lu, 90%%: %lu, 99%%: %lu, 99.9%%: %lu, 99.99%%: %lu, 99.999%%: %lu\n", times[N_OPS/100], times[N_OPS/10], times[N_OPS/2], times[9*N_OPS/10], times[99*N_OPS/100], times[999*N_OPS/1000], times[9999*N_OPS/10000], times[99999*N_OPS/100000]);

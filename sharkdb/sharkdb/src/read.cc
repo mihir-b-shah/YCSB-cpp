@@ -2,6 +2,7 @@
 #include "db_impl.h"
 
 #include <sys/resource.h>
+#include <algorithm>
 #include <liburing.h>
 
 read_ring_t::read_ring_t(db_t* ref) : db_ref_(ref), n_progress_io_(0) {
@@ -11,7 +12,7 @@ read_ring_t::read_ring_t(db_t* ref) : db_ref_(ref), n_progress_io_(0) {
     rc = getrlimit(RLIMIT_MEMLOCK, &mlock_lim);
     assert(rc == 0);
     size_t total_lk_mem_avail = (mlock_lim.rlim_cur * PERC_LOCKED_MEM_USE) / 100;
-    size_t n_buffers = total_lk_mem_avail / (BLOCKS_PER_FENCE * BLOCK_BYTES * N_USER_THREADS);
+    size_t n_buffers = std::min(total_lk_mem_avail / (BLOCKS_PER_FENCE * BLOCK_BYTES * N_USER_THREADS), N_IN_FLIGHT / N_USER_THREADS);
 
 	//	Note for each read that requires I/O, we need one progress_state tracker.
     void* buffers_base;
