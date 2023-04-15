@@ -2,25 +2,45 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cassert>
+#include <cstdlib>
 #include <liburing.h>
 
-char buf[4096];
-
 static constexpr size_t N_SQ_ENTRIES = 128;
+static constexpr size_t LOG_SIZE = 500000;
 
 int main() {
-	int fd = open("wal", O_CREAT | O_APPEND | O_WRONLY | O_SYNC, S_IWUSR);
+    int rc;
+
+	int fd = open("wal", O_CREAT | O_WRONLY | O_DIRECT | O_SYNC, S_IRUSR | S_IWUSR);
 	assert(fd >= 0);
-	assert(unlink("wal") == 0);
+    rc = unlink("wal");
+    assert(rc == 0);
 
     struct io_uring ring;
     assert(io_uring_queue_init(N_SQ_ENTRIES, &ring, 0) == 0);
 
-    
+    void* buf_p;
+    rc = posix_memalign(&buf_p, 4096, LOG_SIZE * 4096);
+    assert(rc == 0);
 
-	for (size_t i = 0; i<1000; ++i) {
-		assert(write(fd, &buf[0], 4096) == 4096);
-	}
+    size_t n_syncs = 0;
+    while (n_syncs < 10) {
+        struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+        io_uring_prep_write(sqe, fd, buf_p, 4096 * LOG_SIZE, 0);
+        int n_submitted = io_uring_submit(&ring);
+        assert(n_submitted == 1);
+
+        struct io_uring_cqe* cqe;
+        int rc;
+        while ((rc = io_uring_peek_cqe(&ring, &cqe)) != 0) {
+            assert(rc == -EAGAIN);
+            __builtin_ia32_pause();
+        }
+
+        assert(cqe->res == (int) LOG_SIZE*4096);
+        io_uring_cqe_seen(&ring, cqe);
+        n_syncs += 1;
+    }
 
     io_uring_queue_exit(&ring);
 	return 0;

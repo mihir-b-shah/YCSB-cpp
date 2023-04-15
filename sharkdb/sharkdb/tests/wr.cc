@@ -47,6 +47,7 @@ int main() {
 
 	printf("After multiwrite.\n");
 	sharkdb_drain(p_db);
+	sharkdb_nowrites(p_db);
 
     for (size_t i = 0; i<N_WRITES; ++i) {
         sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_WRITES/100)]);

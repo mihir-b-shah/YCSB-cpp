@@ -68,13 +68,13 @@ wal_t::wal_t(db_t* ref) : buf_p_ucommit_(0), buf_p_commit_(0), db_ref_(ref) {
 			break;
 		}
 	}
+	assert(i < 2*N_PARTITIONS);
     
     int fd = wres->wal_fds_[i];
 	wres->wal_fds_[i] = -1;
     rc = pthread_spin_unlock(&wres->wal_assn_lock_);
     assert(rc == 0);
 
-	assert(i < 2*N_PARTITIONS);
 	fd_ = fd;
 	idx_ = i;
     //  TODO Is this safe, if the file is also being touched by io_uring?
@@ -147,6 +147,7 @@ void* log_thr_body(void* arg) {
                 //  check if we need to sync to log...
                 uint32_t ucommit_ld = __atomic_load_n(&part->l0_->wal_.buf_p_ucommit_, __ATOMIC_SEQ_CST);
                 if (ucommit_ld - part->l0_->wal_.buf_p_commit_ >= LOG_BUF_SYNC_INTV) {
+                    wal_t* wal_p = &part->l0_->wal_;
                     rc = pthread_rwlock_unlock(&part->namespace_lock_);
                     assert(rc == 0);
 
@@ -166,6 +167,8 @@ void* log_thr_body(void* arg) {
                     pthread_rwlock_lock_wrap<TEMPL_IS_WRITE>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
                     uint64_t lclk = part->lclk_next_;
                     uint32_t until = part->l0_->wal_.buf_p_ucommit_;
+                    uint32_t p_commit = part->l0_->wal_.buf_p_commit_;
+
                     rc = pthread_rwlock_unlock(&part->namespace_lock_);
                     assert(rc == 0);
 
@@ -174,14 +177,23 @@ void* log_thr_body(void* arg) {
                     //  the index of file and buffer we want to write.
                     //  Ensure we only log whole blocks.
                     until /= N_ENTRIES_PER_BLOCK;
-                    uint32_t p_commit = part->l0_->wal_.buf_p_commit_;
                     p_commit /= N_ENTRIES_PER_BLOCK; 
 
                     char* p = (char*) &part->l0_->wal_.log_buffer_[p_commit];
                     size_t len = (until - p_commit) * BLOCK_BYTES;
                     size_t f_offs = p_commit * BLOCK_BYTES;
 
+                    if (wal_p != &part->l0_->wal_) {
+                        pthread_rwlock_unlock(&part->namespace_lock_);
+                        goto _loop_head;
+                    }
+
                     struct io_uring_sqe* sqe = io_uring_get_sqe(log_ring);
+
+                    if (!part->db_ref_->do_writes_) {
+                        len = BLOCK_BYTES;
+                    }
+
                     io_uring_prep_write(sqe, part->l0_->wal_.fd_, p, len, f_offs);
 
                     sync_state[i].valid_ = true;

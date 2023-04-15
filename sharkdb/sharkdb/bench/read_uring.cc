@@ -13,7 +13,7 @@ static uint64_t get_micros(struct timespec ts) {
 }
 
 static constexpr size_t BLOCK_BYTES = 4096;
-static constexpr size_t N_OPS = 1000000;
+static constexpr size_t N_OPS = 4000000;
 static constexpr size_t WINDOW_SIZE = 64;
 
 int main() {

@@ -53,50 +53,54 @@ void* flush_thr_body(void* arg) {
 			ss_table->fd_ = open(ss_table_path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
             assert(ss_table->fd_ >= 0);
 
+            // just a hack to measure impact of writes on read tail-latency.
 			mem_table_t* mem_table = &l0_flush->mem_table_;
 
-			size_t entries_wr = 0;
-			for (auto it = mem_table->begin(); it != mem_table->end(); ++it) {
-				ss_table->filter_.set(it->first);
+            if (part->db_ref_->do_writes_) {
+                size_t entries_wr = 0;
+                for (auto it = mem_table->begin(); it != mem_table->end(); ++it) {
+                    ss_table->filter_.set(it->first);
 
-                rc = write(ss_table->fd_, it->first, SHARKDB_KEY_BYTES);
-                assert(rc == SHARKDB_KEY_BYTES);
-				
-                /*  Completely ignore the version numbers- if it's in the memtable, flush it-
-                    since the sstable is now our persistence mechanism. */
-                rc = write(ss_table->fd_, it->second.v_, SHARKDB_VAL_BYTES);
-                assert(rc == SHARKDB_VAL_BYTES);
+                    rc = write(ss_table->fd_, it->first, SHARKDB_KEY_BYTES);
+                    assert(rc == SHARKDB_KEY_BYTES);
+                    
+                    /*  Completely ignore the version numbers- if it's in the memtable, flush it-
+                        since the sstable is now our persistence mechanism. */
+                    rc = write(ss_table->fd_, it->second.v_, SHARKDB_VAL_BYTES);
+                    assert(rc == SHARKDB_VAL_BYTES);
 
-				if (entries_wr % (BLOCKS_PER_FENCE * N_ENTRIES_PER_BLOCK) == 0) {
-					ss_table->fence_ptrs_.emplace_back(it->first, entries_wr / N_ENTRIES_PER_BLOCK);
-				}
-				entries_wr += 1;
-			}
+                    if (entries_wr % (BLOCKS_PER_FENCE * N_ENTRIES_PER_BLOCK) == 0) {
+                        ss_table->fence_ptrs_.emplace_back(it->first, entries_wr / N_ENTRIES_PER_BLOCK);
+                    }
+                    entries_wr += 1;
+                }
 
-			/*	Make sure:
-				1)	There is a fence pointer for a "top" key, so that std::upper_bound requests
-					against the fence_ptrs succeed.
-				2)	The last block is padded, if need be. */
+                /*	Make sure:
+                    1)	There is a fence pointer for a "top" key, so that std::upper_bound requests
+                        against the fence_ptrs succeed.
+                    2)	The last block is padded, if need be. */
 
-			const char* TOP_KEY_STEM = "vser00000000000000000000";
-			assert(strcmp(TOP_KEY_STEM, KEY_PREFIX) > 0 && strlen(TOP_KEY_STEM) == SHARKDB_KEY_BYTES);
+                const char* TOP_KEY_STEM = "vser00000000000000000000";
+                assert(strcmp(TOP_KEY_STEM, KEY_PREFIX) > 0 && strlen(TOP_KEY_STEM) == SHARKDB_KEY_BYTES);
 
-			if (entries_wr % N_ENTRIES_PER_BLOCK != 0) {
-				char key_buf[SHARKDB_KEY_BYTES+1];
-				strcpy(&key_buf[0], TOP_KEY_STEM);
+                if (entries_wr % N_ENTRIES_PER_BLOCK != 0) {
+                    char key_buf[SHARKDB_KEY_BYTES+1];
+                    strcpy(&key_buf[0], TOP_KEY_STEM);
 
-				for (size_t i = (entries_wr % N_ENTRIES_PER_BLOCK); i<N_ENTRIES_PER_BLOCK; ++i) {
-					key_buf[SHARKDB_KEY_BYTES-1] = i + '0';
-					rc = write(ss_table->fd_, &key_buf[0], SHARKDB_KEY_BYTES);
-					assert(rc == SHARKDB_KEY_BYTES);
-					rc = write(ss_table->fd_, &zero_buf[0], SHARKDB_VAL_BYTES);
-					assert(rc == SHARKDB_VAL_BYTES);
-				}
-			}
-			ss_table->fence_ptrs_.emplace_back(TOP_KEY_STEM, (entries_wr + N_ENTRIES_PER_BLOCK - 1) / N_ENTRIES_PER_BLOCK);
+                    for (size_t i = (entries_wr % N_ENTRIES_PER_BLOCK); i<N_ENTRIES_PER_BLOCK; ++i) {
+                        key_buf[SHARKDB_KEY_BYTES-1] = i + '0';
+                        rc = write(ss_table->fd_, &key_buf[0], SHARKDB_KEY_BYTES);
+                        assert(rc == SHARKDB_KEY_BYTES);
+                        rc = write(ss_table->fd_, &zero_buf[0], SHARKDB_VAL_BYTES);
+                        assert(rc == SHARKDB_VAL_BYTES);
+                    }
+                }
+                ss_table->fence_ptrs_.emplace_back(TOP_KEY_STEM, (entries_wr + N_ENTRIES_PER_BLOCK - 1) / N_ENTRIES_PER_BLOCK);
 
-            rc = fsync(ss_table->fd_);
-            assert(rc == 0);
+                rc = fsync(ss_table->fd_);
+                assert(rc == 0);
+            }
+
 			rc = close(ss_table->fd_);
             assert(rc == 0);
 

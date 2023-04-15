@@ -14,7 +14,7 @@ int main() {
     sharkdb_t* p_db = sharkdb_init();
 
 	std::vector<std::string> ks_strs;
-	for (size_t i = 0; i<N_OPS; ++i) {
+	for (size_t i = 0; i<2*N_OPS; ++i) {
         std::string k = "user";
         for (size_t j = 0; j<20; ++j) {
             k.push_back('0' + (rand() % 10));
@@ -30,10 +30,13 @@ int main() {
 		char* vc = (char*) v;
 		vs_v.push_back((const char*) vc);
 	}
+    fprintf(stderr, "setup done.\n");
 
     for (size_t i = 0; i<N_OPS; ++i) {
         sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i % (N_OPS/100)]);
     }
+    fprintf(stderr, "did writes.\n");
+
     size_t cq_received = 0;
     while (cq_received < N_OPS-20000) {
         std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
@@ -43,13 +46,11 @@ int main() {
         }
     }
 	sharkdb_drain(p_db);
+    // sharkdb_nowrites(p_db);
 
     for (size_t i = 0; i<N_OPS; ++i) {
-        if (i % 2 == 0) {
-            sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i % (N_OPS/100)]);
-        } else {
-            sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_OPS/100)]);
-        }
+        sharkdb_write_async(p_db, ks_strs[i+N_OPS].c_str(), vs_v[i % (N_OPS/100)]);
+        sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_OPS/100)]);
     } 
     fprintf(stderr, "raar!\n");
 

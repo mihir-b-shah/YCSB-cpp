@@ -202,6 +202,7 @@ struct db_t {
 	pthread_t log_thr_;
     uint32_t l0_version_ctr_;
 	bool stop_thrs_;
+    bool do_writes_;
     io_manager_t io_manager_;
 
 	db_t();

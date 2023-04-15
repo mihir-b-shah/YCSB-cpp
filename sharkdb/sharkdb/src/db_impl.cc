@@ -90,7 +90,7 @@ std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table) 
 	}
 }
 
-db_t::db_t() : l0_version_ctr_(0), stop_thrs_(false) {
+db_t::db_t() : l0_version_ctr_(0), stop_thrs_(false), do_writes_(true) {
 	int rc;
 
     //	Necessary to avoid copy constructor, since we're not implementing rule of 5...
@@ -166,6 +166,11 @@ void sharkdb_drain(sharkdb_t* db) {
 	while (!cq->empty()) {
 		cq->pop();
 	}
+}
+
+void sharkdb_nowrites(sharkdb_t* db) {
+    db_t* p_db = (db_t*) db->db_impl_;
+    p_db->do_writes_ = false;
 }
 
 //  Stats code
