@@ -72,6 +72,12 @@ void* flush_thr_body(void* arg) {
                     if (entries_wr % (BLOCKS_PER_FENCE * N_ENTRIES_PER_BLOCK) == 0) {
                         ss_table->fence_ptrs_.emplace_back(it->first, entries_wr / N_ENTRIES_PER_BLOCK);
                     }
+
+                    if (entries_wr % MEM_TABLE_FLUSH_INTV == 0) {
+                        rc = fsync(ss_table->fd_);
+                        assert(rc == 0);
+                    }
+
                     entries_wr += 1;
                 }
 
