@@ -122,6 +122,10 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
             }
             read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
 
+            #if defined(INSTR)
+            uint64_t bef_backpr = get_ts_nsecs();
+            #endif
+            
             /*	A very poor form of backpressure, if we keep # in-flight requests correct,
                 shouldn't happen much. Problematic, since we do this while holding the
                 namespace lock though- shouldn't be too bad though? */
@@ -140,6 +144,11 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
                     __builtin_ia32_pause();
                 }
             }
+
+            #if defined(INSTR)
+            asm volatile ("" ::: "memory");
+            get_stats()->t_backpres_inflight_ns_.push_back(get_ts_nsecs() - bef_backpr);
+            #endif
 
             read_ring_t::progress_t* prog_state = &rd_ring->progress_states_[alloc_idx];
             prog_state->part_ = part;
@@ -182,6 +191,10 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
     pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
+    #if defined(INSTR)
+    uint64_t bef_backpr = get_ts_nsecs();
+    #endif
+
     uint64_t my_lclk;
     uint32_t buf_spot;
     while (true) {
@@ -205,6 +218,11 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
             break;
         }
     }
+
+    #if defined(INSTR)
+    asm volatile ("" ::: "memory");
+    get_stats()->t_backpres_mt_space_ns_.push_back(get_ts_nsecs() - bef_backpr);
+    #endif
 
 	mem_table_t* mem_table = &part->l0_->mem_table_;
 

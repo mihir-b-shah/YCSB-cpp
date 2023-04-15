@@ -139,8 +139,13 @@ struct cqe_t {
 
 	cqe_t(partition_t* part, uint64_t lclk, sharkdb_cqev ev, bool success) 
 		: part_(part), lclk_visible_(lclk), ev_(ev), success_(success) {}
+
+    bool operator<(const cqe_t& e) const {
+        //  want a min-heap behavior.
+        return lclk_visible_ > e.lclk_visible_;
+    }
 };
-typedef std::queue<cqe_t> cq_t;
+typedef std::priority_queue<cqe_t> cq_t;
 
 /*  User-thread private ring, since io_uring is intended to be each thread-private */
 struct read_ring_t {
@@ -213,6 +218,8 @@ struct stats_t {
     std::vector<uint64_t> t_read_io_ns_;
     std::vector<uint64_t> t_read_io_single_ns_;
     std::vector<uint64_t> t_contend_namesp_ns_;
+    std::vector<uint64_t> t_backpres_inflight_ns_;
+    std::vector<uint64_t> t_backpres_mt_space_ns_;
 };
 stats_t* get_stats();
 

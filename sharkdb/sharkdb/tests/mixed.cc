@@ -32,20 +32,26 @@ int main() {
 	}
 
     for (size_t i = 0; i<N_OPS; ++i) {
+        sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i % (N_OPS/100)]);
+    }
+    size_t cq_received = 0;
+    while (cq_received < N_OPS-20000) {
+        std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
+        assert(ev.first);
+        if (ev.second != SHARKDB_CQEV_FAIL) {
+            cq_received += 1;
+        }
+    }
+	sharkdb_drain(p_db);
+
+    for (size_t i = 0; i<N_OPS; ++i) {
         if (i % 2 == 0) {
             sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i % (N_OPS/100)]);
         } else {
             sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_OPS/100)]);
         }
     } 
-
-    size_t cq_received = 0;
-    while (cq_received < N_OPS-20000) {
-        std::pair<bool, sharkdb_cqev> pr = sharkdb_cpoll_cq(p_db);
-        if (pr.second != SHARKDB_CQEV_FAIL) {
-            cq_received += 1;
-        }
-    }
+    fprintf(stderr, "raar!\n");
 
     sharkdb_free(p_db);
 	for (const char* v : vs_v) {

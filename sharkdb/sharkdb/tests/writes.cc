@@ -37,6 +37,7 @@ int main() {
         for (size_t i = 0; i<N_WRITES; ++i) {
             sharkdb_write_async(p_db, ks_strs[i].c_str(), vs_v[i]);
         }
+        fprintf(stderr, "rat! %lu\n", T);
     }
 
     size_t cq_received = 0;

@@ -1,0 +1,53 @@
+thr_name: user_thread
+n_reads: 500000
+n_reads_io: 19134
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 19130, [1%: 78977, 10%: 84860, 50%: 97094, 90%: 1615243, 99%: 19981792, 99.9%: 61542365, 99.99%: 63390779]
+t_contend_namesp_ns: n: 1000000, [1%: 18, 10%: 19, 50%: 51, 90%: 81, 99%: 114, 99.9%: 167, 99.99%: 966]
+
+thr_name: flush_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 6, [1%: 157, 10%: 157, 50%: 1281, 90%: 6362, 99%: 6362, 99.9%: 6362, 99.99%: 6362]
+
+thr_name: flush_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 6, [1%: 162, 10%: 162, 50%: 4813, 90%: 12731, 99%: 12731, 99.9%: 12731, 99.99%: 12731]
+
+thr_name: log_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 24335826, [1%: 17, 10%: 18, 50%: 20, 90%: 40, 99%: 77, 99.9%: 124, 99.99%: 171]
+
+Done!
+
+	Command being timed: "./build/mixed.run"
+	User time (seconds): 7.33
+	System time (seconds): 1.31
+	Percent of CPU this job got: 329%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:02.62
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 691836
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 230649
+	Voluntary context switches: 19848
+	Involuntary context switches: 1662
+	Swaps: 0
+	File system inputs: 153072
+	File system outputs: 1831592
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

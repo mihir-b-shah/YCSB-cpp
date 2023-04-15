@@ -49,6 +49,7 @@ void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state) {
 
     #if defined(INSTR)
     prog_state->submit_ts_single_ns_ = get_ts_nsecs();
+    asm volatile ("" ::: "memory");
     #endif
 
     struct io_uring_sqe* sqe = io_uring_get_sqe(&ring->ring_);
@@ -96,6 +97,7 @@ void check_io(sharkdb_t* arg) {
 
         #if defined(INSTR)
         get_stats()->t_read_io_single_ns_.push_back(get_ts_nsecs() - state->submit_ts_single_ns_);
+        asm volatile("" ::: "memory");
         #endif
 
 		size_t n_read = (state->blk_range_end_ - state->blk_range_start_) * BLOCK_BYTES;

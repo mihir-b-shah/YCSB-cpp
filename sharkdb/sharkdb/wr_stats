@@ -1,0 +1,55 @@
+thr_name: user_thread
+n_reads: 1000000
+n_reads_io: 1035963
+t_read_io_ns: n: 927419, [1%: 86779, 10%: 108654, 50%: 257061, 90%: 649788, 99%: 1091566, 99.9%: 1707106, 99.99%: 29856537]
+t_read_io_single_ns: n: 1035963, [1%: 86282, 10%: 105886, 50%: 231797, 90%: 571772, 99%: 935429, 99.9%: 1266399, 99.99%: 24842838]
+t_contend_namesp_ns: n: 2000005, [1%: 18, 10%: 22, 50%: 64, 90%: 92, 99%: 148, 99.9%: 904, 99.99%: 1353]
+
+thr_name: flush_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 12, [1%: 149, 10%: 173, 50%: 264, 90%: 1485, 99%: 2023, 99.9%: 2023, 99.99%: 2023]
+
+thr_name: flush_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 12, [1%: 144, 10%: 160, 50%: 1050, 90%: 5296, 99%: 465246, 99.9%: 465246, 99.99%: 465246]
+
+thr_name: log_thread
+n_reads: 0
+n_reads_io: 0
+t_read_io_ns: n: 0
+t_read_io_single_ns: n: 0
+t_contend_namesp_ns: n: 82910813, [1%: 17, 10%: 18, 50%: 21, 90%: 39, 99%: 70, 99.9%: 116, 99.99%: 155]
+
+After multiwrite.
+After reads.
+Done!
+
+	Command being timed: "./build/wr.run"
+	User time (seconds): 26.05
+	System time (seconds): 7.39
+	Percent of CPU this job got: 375%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:08.90
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1556080
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 559665
+	Voluntary context switches: 999931
+	Involuntary context switches: 1868
+	Swaps: 0
+	File system inputs: 8287704
+	File system outputs: 3754872
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
