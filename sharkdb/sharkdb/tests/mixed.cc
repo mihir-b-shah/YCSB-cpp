@@ -24,8 +24,8 @@ int main() {
 
 	std::vector<const char*> vs_v;
 	for (size_t i = 0; i<N_OPS/100; ++i) {
-		void* v = malloc(1000);
-		memset(v, 'A', 1000);
+		void* v = malloc(SHARKDB_VAL_BYTES);
+		memset(v, 'A', SHARKDB_VAL_BYTES);
 		assert(v != nullptr);
 		char* vc = (char*) v;
 		vs_v.push_back((const char*) vc);

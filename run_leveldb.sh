@@ -1,2 +1,2 @@
 export LD_LIBRARY_PATH='$LD_LIBRARY_PATH:./sharkdb/sharkdb/liburing/lib'
-./ycsb -load -run -db leveldb -P workloads/workload$1 -P leveldb/leveldb.properties -p threadcount=4 -s
+/usr/bin/time -v ./ycsb -load -run -db leveldb -P workloads/workload$1 -P leveldb/leveldb.properties -p threadcount=256 -s

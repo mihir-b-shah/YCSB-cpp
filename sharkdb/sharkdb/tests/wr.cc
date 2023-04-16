@@ -9,7 +9,6 @@
 #include <string>
 
 static constexpr size_t N_WRITES = 1000000;
-static constexpr size_t N_MAX_LOG_PENDING = 20000;
 
 int main() {
     sharkdb_t* p_db = sharkdb_init();
@@ -25,8 +24,8 @@ int main() {
 
 	std::vector<const char*> vs_v;
 	for (size_t i = 0; i<N_WRITES/100; ++i) {
-		void* v = malloc(1000);
-		memset(v, 'A', 1000);
+		void* v = malloc(SHARKDB_VAL_BYTES);
+		memset(v, 'A', SHARKDB_VAL_BYTES);
 		assert(v != nullptr);
 		char* vc = (char*) v;
 		vs_v.push_back((const char*) vc);
@@ -37,15 +36,16 @@ int main() {
     } 
 
     size_t cq_received = 0;
-    while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {
+    while (true) {
         std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
         assert(ev.first);
-        if (ev.second != SHARKDB_CQEV_FAIL) {
-            cq_received += 1;
+        if (ev.second == SHARKDB_CQEV_FAIL) {
+            break;
         }
+        cq_received += 1;
     }
 
-	printf("After multiwrite.\n");
+	printf("After multiwrite, cq_received=%lu.\n", cq_received);
 	sharkdb_drain(p_db);
 	sharkdb_nowrites(p_db);
 
@@ -55,12 +55,13 @@ int main() {
 	printf("After reads.\n");
 
     cq_received = 0;
-    while (cq_received < N_WRITES-N_MAX_LOG_PENDING) {
+    while (true) {
         std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
         assert(ev.first);
-        if (ev.second != SHARKDB_CQEV_FAIL) {
-            cq_received += 1;
+        if (ev.second == SHARKDB_CQEV_FAIL) {
+            break;
         }
+        cq_received += 1;
     }
 
     sharkdb_free(p_db);
@@ -68,6 +69,6 @@ int main() {
 		free((void*) v);
 	}
 
-    printf("Done!\n\n");
+    printf("Done! cq_received: %lu\n", cq_received);
     return 0;
 }

@@ -9,9 +9,6 @@
 #define SHARKDB_KEY_BYTES 24
 #define SHARKDB_VAL_BYTES 1000
 
-/*	For simplicity, let's keep YCSB benchmark in batch-sync mode- b/c async is a pain
-	with the way they've impl'ed it. */
-
 typedef int sharkdb_cqev;
 static constexpr sharkdb_cqev SHARKDB_CQEV_FAIL = -1;
 

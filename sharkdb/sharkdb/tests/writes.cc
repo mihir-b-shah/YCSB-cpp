@@ -23,10 +23,10 @@ int main() {
 
 	std::vector<const char*> vs_v;
 	for (size_t i = 0; i<N_WRITES; ++i) {
-		void* v = malloc(1000);
+		void* v = malloc(SHARKDB_VAL_BYTES);
 		assert(v != nullptr);
 		char* vc = (char*) v;
-		for (size_t j = 0; j<1000; ++j) {
+		for (size_t j = 0; j<SHARKDB_VAL_BYTES; ++j) {
 			vc[j] = 'A';
 		}
 		vs_v.push_back((const char*) vc);
