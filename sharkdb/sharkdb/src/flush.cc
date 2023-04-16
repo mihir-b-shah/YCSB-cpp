@@ -74,6 +74,10 @@ void* flush_thr_body(void* arg) {
                     }
 
                     if (entries_wr % MEM_TABLE_FLUSH_INTV == 0) {
+                        #if defined(MEASURE)
+                        get_stats()->n_flush_syncs_ += 1;
+                        #endif
+
                         rc = fsync(ss_table->fd_);
                         assert(rc == 0);
                     }
@@ -103,6 +107,9 @@ void* flush_thr_body(void* arg) {
                 }
                 ss_table->fence_ptrs_.emplace_back(TOP_KEY_STEM, (entries_wr + N_ENTRIES_PER_BLOCK - 1) / N_ENTRIES_PER_BLOCK);
 
+                #if defined(MEASURE)
+                get_stats()->n_flush_syncs_ += 1;
+                #endif
                 rc = fsync(ss_table->fd_);
                 assert(rc == 0);
             }

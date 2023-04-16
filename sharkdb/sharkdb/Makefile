@@ -1,4 +1,9 @@
-FLAGS=-g -O2 -std=c++17 -Wall -Werror -DINSTR #-fsanitize=address -fsanitize=undefined #-DNDEBUG
+FLAGS=-g -O2 -std=c++17 -Wall -Werror
+#FLAGS+=-fsanitize=address -fsanitize=undefined
+#FLAGS+=-DMEASURE
+FLAGS+=-DNDEBUG
+FLAGS+=-Wno-unused-but-set-variable -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function
+
 O_FILES=$(patsubst src/%.cc,build/%.o,$(wildcard src/*.cc))
 TESTS=$(patsubst tests/%.cc,build/%.run,$(wildcard tests/*.cc))
 BENCHS=$(patsubst bench/%.cc,bench/%.run,$(wildcard bench/*.cc))

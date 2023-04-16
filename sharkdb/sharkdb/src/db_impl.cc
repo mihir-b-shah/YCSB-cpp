@@ -145,8 +145,12 @@ sharkdb_t* sharkdb_init() {
 
 std::pair<bool, sharkdb_cqev> sharkdb_cpoll_cq(sharkdb_t* db) {
 	cq_t* cq = (cq_t*) db->cq_impl_;
-	cqe_t cqe = cq->top();
-	if (cqe.lclk_visible_ <= cqe.part_->lclk_visible_) {
+	if (!cq->empty() && cq->top().lclk_visible_ <= cq->top().part_->lclk_visible_) {
+	    cqe_t cqe = cq->top();
+        #if defined(MEASURE)
+        get_stats()->t_write_visible_ns_.push_back(get_ts_nsecs() - cqe.submit_ts_);
+        #endif
+
         cq->pop();
         return {cqe.success_, cqe.ev_};
     } else {
@@ -161,11 +165,14 @@ void sharkdb_free(sharkdb_t* db) {
 }
 
 //	Hacky- just for ending, to avoid complex logic
-void sharkdb_drain(sharkdb_t* db) {
+size_t sharkdb_drain(sharkdb_t* db) {
 	cq_t* cq = (cq_t*) db->cq_impl_;
+    size_t ct = 0;
 	while (!cq->empty()) {
 		cq->pop();
+        ct += 1;
 	}
+    return ct;
 }
 
 void sharkdb_nowrites(sharkdb_t* db) {
@@ -174,17 +181,20 @@ void sharkdb_nowrites(sharkdb_t* db) {
 }
 
 //  Stats code
-stats_t::stats_t() : thr_name_(nullptr), n_reads_(0), n_reads_io_(0) {
+stats_t::stats_t() : thr_name_(nullptr), n_reads_(0), n_reads_io_(0), n_flush_syncs_(0), n_log_syncs_(0) {
+    #if defined(MEASURE)
     t_read_io_ns_.reserve(2000000);
     t_read_io_single_ns_.reserve(2000000);
+    t_write_visible_ns_.reserve(2000000);
     t_contend_namesp_ns_.reserve(2000000);
     t_backpres_inflight_ns_.reserve(2000000);
     t_backpres_mt_space_ns_.reserve(2000000);
+    t_backpres_mt_space_ns_.reserve(2000000);
+    #endif
 }
 
 static constexpr int PRBUF_BYTES = 200;
 
-[[maybe_unused]]
 static void fill_latency_stats(std::vector<uint64_t>& times, char* fill) {
     int rc;
     if (times.size() == 0) {
@@ -197,11 +207,13 @@ static void fill_latency_stats(std::vector<uint64_t>& times, char* fill) {
 }
 
 stats_t::~stats_t() {
-    #if defined(INSTR)
+    #if defined(MEASURE)
     char t_io_buf[PRBUF_BYTES];
     fill_latency_stats(t_read_io_ns_, &t_io_buf[0]);
     char t_io_single_buf[PRBUF_BYTES];
     fill_latency_stats(t_read_io_single_ns_, &t_io_single_buf[0]);
+    char t_write_visible_buf[PRBUF_BYTES];
+    fill_latency_stats(t_write_visible_ns_, &t_write_visible_buf[0]);
     char t_contend_namesp_buf[PRBUF_BYTES];
     fill_latency_stats(t_contend_namesp_ns_, &t_contend_namesp_buf[0]);
     char t_backpres_inflight_buf[PRBUF_BYTES];
@@ -213,14 +225,16 @@ stats_t::~stats_t() {
         "thr_name: %s\n"
         "n_reads: %u\n"
         "n_reads_io: %u\n"
+        "n_flush_syncs: %u\n"
+        "n_log_syncs: %u\n"
         "t_read_io_ns: %s\n"
         "t_read_io_single_ns: %s\n"
+        "t_write_visible_ns: %s\n"
         "t_contend_namesp_ns: %s\n"
         "t_backpres_inflight_ns: %s\n"
         "t_backpres_mt_space_ns: %s\n"
         "\n",
-        thr_name_, n_reads_, n_reads_io_, &t_io_buf[0], &t_io_single_buf[0], &t_contend_namesp_buf[0],
-        &t_backpres_inflight_buf[0], &t_backpres_mt_space_buf[0]);
+        thr_name_, n_reads_, n_reads_io_, n_flush_syncs_, n_log_syncs_, &t_io_buf[0], &t_io_single_buf[0], &t_write_visible_buf[0], &t_contend_namesp_buf[0], &t_backpres_inflight_buf[0], &t_backpres_mt_space_buf[0]);
 
     #endif
 }

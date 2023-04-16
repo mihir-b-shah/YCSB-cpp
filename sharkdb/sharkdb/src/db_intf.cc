@@ -68,7 +68,7 @@ static char* do_memtable_read(partition_t* part, level_0_t* l0, const char* k) {
 sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
     int rc;
 
-    #if defined(INSTR)
+    #if defined(MEASURE)
     get_stats()->n_reads_ += 1;
     #endif
 
@@ -122,7 +122,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
             }
             read_ring_t* rd_ring = (read_ring_t*) db->rd_ring_impl_;
 
-            #if defined(INSTR)
+            #if defined(MEASURE)
             uint64_t bef_backpr = get_ts_nsecs();
             #endif
             
@@ -145,7 +145,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
                 }
             }
 
-            #if defined(INSTR)
+            #if defined(MEASURE)
             asm volatile ("" ::: "memory");
             get_stats()->t_backpres_inflight_ns_.push_back(get_ts_nsecs() - bef_backpr);
             #endif
@@ -162,7 +162,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
             prog_state->blk_range_start_ = range.first; 
             prog_state->blk_range_end_ = range.second;
 
-            #if defined(INSTR)
+            #if defined(MEASURE)
             prog_state->submit_ts_ns_ = get_ts_nsecs();
             #endif
 
@@ -191,7 +191,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
 
     pthread_rwlock_lock_wrap<TEMPL_IS_READ>(&part->namespace_lock_, get_stats()->t_contend_namesp_ns_);
 
-    #if defined(INSTR)
+    #if defined(MEASURE)
     uint64_t bef_backpr = get_ts_nsecs();
     #endif
 
@@ -219,7 +219,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v) {
         }
     }
 
-    #if defined(INSTR)
+    #if defined(MEASURE)
     asm volatile ("" ::: "memory");
     get_stats()->t_backpres_mt_space_ns_.push_back(get_ts_nsecs() - bef_backpr);
     #endif

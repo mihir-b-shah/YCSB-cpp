@@ -30,7 +30,7 @@ sharkdb_cqev sharkdb_write_async(sharkdb_t* db, const char* k, const char* v);
 std::pair<bool, sharkdb_cqev> sharkdb_cpoll_cq(sharkdb_t* db);
 void sharkdb_free(sharkdb_t* db);
 // a hack that empties the completion queue, regardless of timestamps.
-void sharkdb_drain(sharkdb_t* db);
+size_t sharkdb_drain(sharkdb_t* db);
 void sharkdb_nowrites(sharkdb_t* db);
 
 #endif

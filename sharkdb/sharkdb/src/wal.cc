@@ -203,6 +203,10 @@ void* log_thr_body(void* arg) {
                     sync_state[i].new_lclk_visible_ = lclk-1;
                     io_uring_sqe_set_data(sqe, (void*) &sync_state[i]);
 
+                    #if defined(MEASURE)
+                    get_stats()->n_log_syncs_ += 1;
+                    #endif
+
                     //  safe, since only this thread writes to this ring.
                     int n_submitted = io_uring_submit(log_ring);
                     assert(n_submitted == 1);

@@ -131,14 +131,26 @@ struct wal_resources_t {
 
 void* log_thr_body(void* arg);
 
+static inline uint64_t get_ts_nsecs() {
+    struct timespec ts;
+    int rc = clock_gettime(CLOCK_MONOTONIC, &ts);
+    assert(rc == 0);
+    return ((uint64_t) ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
+}
+
 struct cqe_t {
 	partition_t* part_;
+    uint64_t submit_ts_;
 	uint64_t lclk_visible_;
 	sharkdb_cqev ev_;
     bool success_;
 
 	cqe_t(partition_t* part, uint64_t lclk, sharkdb_cqev ev, bool success) 
-		: part_(part), lclk_visible_(lclk), ev_(ev), success_(success) {}
+		: part_(part), lclk_visible_(lclk), ev_(ev), success_(success) {
+        #if defined(MEASURE)
+        submit_ts_ = get_ts_nsecs();
+        #endif
+    }
 
     bool operator<(const cqe_t& e) const {
         //  want a min-heap behavior.
@@ -216,24 +228,20 @@ struct stats_t {
     const char* thr_name_;
     uint32_t n_reads_;
     uint32_t n_reads_io_;
+    uint32_t n_flush_syncs_;
+    uint32_t n_log_syncs_;
     std::vector<uint64_t> t_read_io_ns_;
     std::vector<uint64_t> t_read_io_single_ns_;
+    std::vector<uint64_t> t_write_visible_ns_;
     std::vector<uint64_t> t_contend_namesp_ns_;
     std::vector<uint64_t> t_backpres_inflight_ns_;
     std::vector<uint64_t> t_backpres_mt_space_ns_;
 };
 stats_t* get_stats();
 
-static inline uint64_t get_ts_nsecs() {
-    struct timespec ts;
-    int rc = clock_gettime(CLOCK_MONOTONIC, &ts);
-    assert(rc == 0);
-    return ((uint64_t) ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
-}
-
 template <templ_rw_arg_e OP_TYPE>
 static inline void pthread_rwlock_lock_wrap(pthread_rwlock_t* lock, std::vector<uint64_t>& ts_append) {
-    #if defined(INSTR)
+    #if defined(MEASURE)
     ts_append.push_back(0);
     asm volatile ("" ::: "memory");
     uint64_t before_lock_ts = get_ts_nsecs();
@@ -247,7 +255,7 @@ static inline void pthread_rwlock_lock_wrap(pthread_rwlock_t* lock, std::vector<
     }
     assert(rc == 0);
 
-    #if defined(INSTR)
+    #if defined(MEASURE)
     ts_append.back() = get_ts_nsecs() - before_lock_ts;
     #else
     //  To silence unused variable error?

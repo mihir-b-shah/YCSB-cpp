@@ -14,7 +14,7 @@ static constexpr size_t N_DISK_LEVELS = 2;
 static constexpr size_t BLOCK_BYTES = 4096;
 static constexpr size_t FILTER_BITS_PER_BLOCK = 8;
 static constexpr size_t BLOCKS_PER_FENCE = 1;
-static constexpr size_t N_USER_THREADS = 1;
+static constexpr size_t N_USER_THREADS = 4;
 static constexpr size_t READ_SQ_DEPTH = 1;
 static constexpr size_t PERC_LOCKED_MEM_USE = 80;
 static constexpr size_t N_IN_FLIGHT = 64;
@@ -40,6 +40,7 @@ static inline size_t get_partition(const char* k) {
 		}
 	}
 	assert(false && "Should have matched a memtable.");
+    return 0;
 }
 
 static_assert(GROWTH_POWERS[1] == SIZE_RATIO);

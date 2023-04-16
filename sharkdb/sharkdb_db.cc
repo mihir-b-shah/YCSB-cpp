@@ -23,12 +23,15 @@ void SharkDB::Init() {
 }
 
 void SharkDB::Cleanup() {
-  std::pair<bool, sharkdb_cqev> pr;
   size_t n_cq_polled = 0;
-  do  {
+  std::pair<bool, sharkdb_cqev> pr;
+  while (true) {
+    pr = sharkdb_cpoll_cq(this->db_impl);
     n_cq_polled += 1;
-  } while ((pr = sharkdb_cpoll_cq(this->db_impl)).second != SHARKDB_CQEV_FAIL);
-  printf("n_cq_polled: %lu\n", n_cq_polled);
+    if (pr.second == SHARKDB_CQEV_FAIL) {
+      break;
+    }
+  }
 
   sharkdb_drain(this->db_impl);
   delete[] this->buf;

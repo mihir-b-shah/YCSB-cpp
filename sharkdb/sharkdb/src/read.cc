@@ -43,11 +43,11 @@ read_ring_t::~read_ring_t() {
 }
 
 void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state) {
-    #if defined(INSTR)
+    #if defined(MEASURE)
     get_stats()->n_reads_io_ += 1;
     #endif
 
-    #if defined(INSTR)
+    #if defined(MEASURE)
     prog_state->submit_ts_single_ns_ = get_ts_nsecs();
     asm volatile ("" ::: "memory");
     #endif
@@ -95,7 +95,7 @@ void check_io(sharkdb_t* arg) {
 	if (rc == 0) {
 		read_ring_t::progress_t* state = (read_ring_t::progress_t*) io_uring_cqe_get_data(cqe);
 
-        #if defined(INSTR)
+        #if defined(MEASURE)
         get_stats()->t_read_io_single_ns_.push_back(get_ts_nsecs() - state->submit_ts_single_ns_);
         asm volatile("" ::: "memory");
         #endif
@@ -105,7 +105,7 @@ void check_io(sharkdb_t* arg) {
 		char* res = search_buffer(ring, state);
 
 		if (res != nullptr) {
-            #if defined(INSTR)
+            #if defined(MEASURE)
             get_stats()->t_read_io_ns_.push_back(get_ts_nsecs() - state->submit_ts_ns_);
             #endif
 
