@@ -53,6 +53,11 @@ void* flush_thr_body(void* arg) {
 			ss_table->fd_ = open(ss_table_path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
             assert(ss_table->fd_ >= 0);
 
+			size_t mt_size = l0_flush->mem_table_.size();
+            size_t space_blocks = (mt_size / N_ENTRIES_PER_BLOCK) + 2;
+            rc = posix_fallocate(ss_table->fd_, 0, space_blocks * BLOCK_BYTES);
+            assert(rc == 0);
+
             // just a hack to measure impact of writes on read tail-latency.
 			mem_table_t* mem_table = &l0_flush->mem_table_;
 

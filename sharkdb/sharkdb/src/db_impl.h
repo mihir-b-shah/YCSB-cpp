@@ -34,6 +34,7 @@ struct block_t {
     kv_pair_t kvs_[N_ENTRIES_PER_BLOCK];
     char pad_[BLOCK_BYTES - sizeof(kv_pair_t)*N_ENTRIES_PER_BLOCK];
 };
+static_assert(sizeof(kv_pair_t)*N_ENTRIES_PER_BLOCK == BLOCK_BYTES);
 static_assert(sizeof(block_t) == BLOCK_BYTES);
 
 struct wal_t {
@@ -196,7 +197,6 @@ struct read_ring_t {
 
 std::pair<size_t, size_t> get_ss_blk_range(const char* k, ss_table_t* ss_table);
 void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state);
-void drain_sq_ring(read_ring_t* ring);
 void check_io(sharkdb_t* db);
 
 //  Put stuff here I want, to coordinate io's.

@@ -66,11 +66,6 @@ void submit_read_io(read_ring_t* ring, read_ring_t::progress_t* prog_state) {
     }
 }
 
-void drain_sq_ring(read_ring_t* ring) {
-    int n_submitted = io_uring_submit(&ring->ring_);
-    assert(n_submitted >= 0);
-}
-
 static char* search_buffer(read_ring_t* ring, read_ring_t::progress_t* state) {
     for (size_t b = 0; b<state->blk_range_end_ - state->blk_range_start_; ++b) {
         for (size_t j = 0; j<N_ENTRIES_PER_BLOCK; ++j) {

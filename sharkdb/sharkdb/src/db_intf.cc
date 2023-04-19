@@ -130,16 +130,11 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
                 shouldn't happen much. Problematic, since we do this while holding the
                 namespace lock though- shouldn't be too bad though? */
             size_t alloc_idx;
-            bool first_loop = true; 
             while (true) {
                 alloc_idx = rd_ring->free_list_.alloc();
                 if (alloc_idx != rd_ring->free_list_.TAIL_) {
                     break;
                 } else {
-                    if (first_loop) {
-                        drain_sq_ring(rd_ring);
-                        first_loop = false;
-                    }
                     check_io(db);
                     __builtin_ia32_pause();
                 }

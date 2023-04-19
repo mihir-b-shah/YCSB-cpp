@@ -207,6 +207,10 @@ static void fill_latency_stats(std::vector<uint64_t>& times, char* fill) {
 }
 
 stats_t::~stats_t() {
+    if (!strcmp(thr_name_, "user_thread") == 0) {
+        return;
+    }
+
     #if defined(MEASURE)
     char t_io_buf[PRBUF_BYTES];
     fill_latency_stats(t_read_io_ns_, &t_io_buf[0]);

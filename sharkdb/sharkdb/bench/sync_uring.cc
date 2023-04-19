@@ -2,30 +2,31 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cassert>
+#include <cstdio>
 #include <cstdlib>
 #include <liburing.h>
 
 static constexpr size_t N_SQ_ENTRIES = 128;
-static constexpr size_t LOG_SIZE = 500000;
+static constexpr size_t LOG_SIZE = 16000;
 
 int main() {
     int rc;
 
-	int fd = open("wal", O_CREAT | O_WRONLY | O_DIRECT | O_SYNC, S_IRUSR | S_IWUSR);
+	int fd = open("/tmp/wal", O_CREAT | O_WRONLY | O_DIRECT | O_SYNC, S_IRUSR | S_IWUSR);
 	assert(fd >= 0);
-    rc = unlink("wal");
-    assert(rc == 0);
 
     struct io_uring ring;
-    assert(io_uring_queue_init(N_SQ_ENTRIES, &ring, 0) == 0);
+    rc = io_uring_queue_init(N_SQ_ENTRIES, &ring, 0);
+    assert(rc == 0);
 
     void* buf_p;
     rc = posix_memalign(&buf_p, 4096, LOG_SIZE * 4096);
     assert(rc == 0);
 
     size_t n_syncs = 0;
-    while (n_syncs < 10) {
+    while (n_syncs < 1) {
         struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
+
         io_uring_prep_write(sqe, fd, buf_p, 4096 * LOG_SIZE, 0);
         int n_submitted = io_uring_submit(&ring);
         assert(n_submitted == 1);

@@ -1,6 +1,6 @@
 FLAGS=-g -O2 -std=c++17 -Wall -Werror
 #FLAGS+=-fsanitize=address -fsanitize=undefined
-FLAGS+=-DMEASURE
+#FLAGS+=-DMEASURE
 FLAGS+=-DNDEBUG
 FLAGS+=-Wno-unused-but-set-variable -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function
 

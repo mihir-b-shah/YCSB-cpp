@@ -51,6 +51,13 @@ int main() {
     for (size_t i = 0; i<N_OPS; ++i) {
         sharkdb_write_async(p_db, ks_strs[i+N_OPS].c_str(), vs_v[i % (N_OPS/100)]);
         sharkdb_read_async(p_db, ks_strs[i].c_str(), (char*) vs_v[i % (N_OPS/100)]);
+
+        while (true) {
+            std::pair<bool, sharkdb_cqev> ev = sharkdb_cpoll_cq(p_db);
+            if (ev.second == SHARKDB_CQEV_FAIL) {
+                break;
+            }
+        }
     } 
     fprintf(stderr, "raar!\n");
 

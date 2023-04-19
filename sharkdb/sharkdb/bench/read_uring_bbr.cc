@@ -14,8 +14,8 @@ static uint64_t get_micros(struct timespec ts) {
 }
 
 static constexpr size_t BLOCK_BYTES = 4096;
-static constexpr size_t N_OPS = 1000000;
-static constexpr size_t WINDOW_SIZE = 1;
+static constexpr size_t N_OPS = 100000;
+static constexpr double TGT_LATENCY = 250; //microseconds
 
 int main() {
     int rc;
@@ -27,7 +27,6 @@ int main() {
     rc = fstat(fd, &stat_buf);
     assert(rc == 0);
     uint64_t n_blocks = stat_buf.st_size / BLOCK_BYTES;
-    printf("n_blocks: %lu\n", n_blocks);
 
 	//	Note for each read that requires I/O, we need one progress_state tracker.
     void* buffers_base;
@@ -53,6 +52,16 @@ int main() {
     struct timespec ts_begin;
     rc = clock_gettime(CLOCK_MONOTONIC, &ts_begin);
     assert(rc == 0);
+
+    std::vector<double> moving_avg;
+    constexpr size_t AVG_WINDOW = 4;
+    moving_avg.reserve(N_OPS+AVG_WINDOW);
+
+    std::vector<uint64_t> times2;
+    times2.reserve(1+N_OPS);
+
+    size_t WINDOW_SIZE = 1;
+    size_t ctr = 0;
 
     while (cp < N_OPS) {
         //  Check if there is work left and space in window.
@@ -84,23 +93,31 @@ int main() {
             rc = clock_gettime(CLOCK_MONOTONIC, &ts_end);
             assert(rc == 0);
             times[slot].second = get_micros(ts_end) - times[slot].second;
+            times2.push_back(times[slot].second);
+
+            if (times2.size() > AVG_WINDOW) {
+                ssize_t diff = ((ssize_t) times2[times2.size()-1]) - ((ssize_t) times2[times2.size()-AVG_WINDOW-1]);
+                moving_avg.push_back((moving_avg.back()*AVG_WINDOW + diff) / AVG_WINDOW);
+            } else if (times2.size() == 1) {
+                moving_avg.push_back(times2.back());
+            } else {
+                moving_avg.push_back(((double) (moving_avg.back()*moving_avg.size() + times2.back())) / (moving_avg.size()+1));
+            }
+
+            if (++ctr % WINDOW_SIZE == 0) {
+                if (moving_avg.back() <= TGT_LATENCY) {
+                    WINDOW_SIZE *= 2;
+                } else {
+                    if (WINDOW_SIZE > 1) {
+                        WINDOW_SIZE /= 2;
+                    }
+                }
+                ctr = 0;
+            }
 
             io_uring_cqe_seen(&ring, cqe);
             cp += 1;
         }
-    }
-
-    std::vector<uint64_t> times2;
-    for (std::pair<uint64_t, uint64_t>& ts : times) {
-        /*
-        ts.first /= (BLOCK_BYTES * 1024);
-        if (ts.second >= 900) {
-            fprintf(stderr, "\tT b=%lu t=%lu\n", ts.first, ts.second);
-        } else {
-            fprintf(stderr, "b=%lu t=%lu\n", ts.first, ts.second);
-        }
-        */
-        times2.push_back(ts.second);
     }
 
     struct timespec ts_final;
@@ -108,6 +125,12 @@ int main() {
     assert(rc == 0);
 
     printf("total time: %lu\n", get_micros(ts_final) - get_micros(ts_begin));
+    
+    /*
+    for (double avg : moving_avg) {
+        fprintf(stderr, "avg: %f\n", avg);
+    }
+    */
 
     std::sort(times2.begin(), times2.end());
     printf("1%%: %lu, 10%%: %lu, 50%%: %lu, 90%%: %lu, 99%%: %lu, 99.9%%: %lu, 99.99%%: %lu, 99.999%%: %lu\n", times2[N_OPS/100], times2[N_OPS/10], times2[N_OPS/2], times2[9*N_OPS/10], times2[99*N_OPS/100], times2[999*N_OPS/1000], times2[9999*N_OPS/10000], times2[99999*N_OPS/100000]);
