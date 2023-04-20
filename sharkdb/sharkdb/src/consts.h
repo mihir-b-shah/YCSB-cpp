@@ -14,12 +14,12 @@ static constexpr size_t N_DISK_LEVELS = 2;
 static constexpr size_t BLOCK_BYTES = 4096;
 static constexpr size_t FILTER_BITS_PER_BLOCK = 8;
 static constexpr size_t BLOCKS_PER_FENCE = 1;
-static constexpr size_t N_USER_THREADS = 1;
-static constexpr size_t READ_SQ_DEPTH = 16;
+static constexpr size_t N_USER_THREADS = 9;
+static constexpr size_t READ_SQ_DEPTH = 1;
 static constexpr size_t PERC_LOCKED_MEM_USE = 80;
 static constexpr size_t N_IN_FLIGHT = 64;
-static constexpr size_t N_PARTITIONS = 2;
-static constexpr size_t LOG_BUF_SYNC_INTV = 1000;
+static constexpr size_t N_PARTITIONS = 1;
+static constexpr size_t LOG_BUF_SYNC_INTV = 768;
 static constexpr size_t LOG_FULL_THR = 90;
 static constexpr size_t LOG_BUF_MAX_ENTRIES = 80000;
 static constexpr size_t MEM_TABLE_FLUSH_INTV = 1000;
@@ -27,7 +27,7 @@ static constexpr size_t SIZE_RATIO = 8;
 static constexpr size_t GROWTH_POWERS[] = {1, 8, 64};
 static constexpr const char* KEY_PREFIX = "user";
 static constexpr const char* ORDER_PREFIXES[N_PARTITIONS] = {
-    "49999999999999999999",
+//    "49999999999999999999",
     "99999999999999999999",
 };
 

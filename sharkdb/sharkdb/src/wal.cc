@@ -118,6 +118,11 @@ struct sync_state_t {
 };
 
 void* log_thr_body(void* arg) {
+    /*
+    printf("Pin logger on thread 1.\n");
+    pin_thread(1);
+    */
+
     int rc;
     db_t* db = (db_t*) arg;
     struct io_uring* log_ring = &db->wal_resources_.log_ring_;

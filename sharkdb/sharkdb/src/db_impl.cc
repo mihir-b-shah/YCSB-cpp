@@ -184,6 +184,7 @@ void sharkdb_nowrites(sharkdb_t* db) {
 stats_t::stats_t() : thr_name_(nullptr), n_reads_(0), n_reads_io_(0), n_flush_syncs_(0), n_log_syncs_(0) {
     #if defined(MEASURE)
     t_read_io_ns_.reserve(2000000);
+    t_read_io_sync_ns_.reserve(2000000);
     t_read_io_single_ns_.reserve(2000000);
     t_write_visible_ns_.reserve(2000000);
     t_contend_namesp_ns_.reserve(2000000);
@@ -201,17 +202,24 @@ static void fill_latency_stats(std::vector<uint64_t>& times, char* fill) {
         rc = sprintf(fill, "n: 0");
     } else {
         std::sort(times.begin(), times.end());
-        rc = sprintf(fill, "n: %lu, [min: %lu, 1%%: %lu, 10%%: %lu, 50%%: %lu, 90%%: %lu, 99%%: %lu, 99.9%%: %lu, 99.99%%: %lu, max: %lu]", times.size(), times[0], times[times.size()/100], times[times.size()/10], times[times.size()/2], times[times.size()*9/10], times[times.size()*99/100], times[times.size()*999/1000], times[times.size()*9999/10000], times[times.size()-1]);
+        uint64_t time_sum = 0;
+        uint64_t time_sum_1ms = 0;
+        for (uint64_t time : times) {
+            time_sum += time;
+            if (time < 1000000) {
+                time_sum_1ms += time;
+            }
+        }
+
+        rc = sprintf(fill, "n: %lu, sum: %lu, sum_1ms: %lu, [min: %lu, 1%%: %lu, 10%%: %lu, 50%%: %lu, 90%%: %lu, 99%%: %lu, 99.9%%: %lu, 99.99%%: %lu, max: %lu]", times.size(), time_sum, time_sum_1ms, times[0], times[times.size()/100], times[times.size()/10], times[times.size()/2], times[times.size()*9/10], times[times.size()*99/100], times[times.size()*999/1000], times[times.size()*9999/10000], times[times.size()-1]);
     }
     assert(rc < PRBUF_BYTES);
 }
 
 stats_t::~stats_t() {
-    if (!strcmp(thr_name_, "user_thread") == 0) {
-        return;
-    }
-
     #if defined(MEASURE)
+    char t_io_sync_buf[PRBUF_BYTES];
+    fill_latency_stats(t_read_io_sync_ns_, &t_io_sync_buf[0]);
     char t_io_buf[PRBUF_BYTES];
     fill_latency_stats(t_read_io_ns_, &t_io_buf[0]);
     char t_io_single_buf[PRBUF_BYTES];
@@ -231,6 +239,7 @@ stats_t::~stats_t() {
         "n_reads_io: %u\n"
         "n_flush_syncs: %u\n"
         "n_log_syncs: %u\n"
+        "t_read_io_sync_ns: %s\n"
         "t_read_io_ns: %s\n"
         "t_read_io_single_ns: %s\n"
         "t_write_visible_ns: %s\n"
@@ -238,7 +247,7 @@ stats_t::~stats_t() {
         "t_backpres_inflight_ns: %s\n"
         "t_backpres_mt_space_ns: %s\n"
         "\n",
-        thr_name_, n_reads_, n_reads_io_, n_flush_syncs_, n_log_syncs_, &t_io_buf[0], &t_io_single_buf[0], &t_write_visible_buf[0], &t_contend_namesp_buf[0], &t_backpres_inflight_buf[0], &t_backpres_mt_space_buf[0]);
+        thr_name_, n_reads_, n_reads_io_, n_flush_syncs_, n_log_syncs_, &t_io_sync_buf[0], &t_io_buf[0], &t_io_single_buf[0], &t_write_visible_buf[0], &t_contend_namesp_buf[0], &t_backpres_inflight_buf[0], &t_backpres_mt_space_buf[0]);
 
     #endif
 }

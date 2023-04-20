@@ -97,6 +97,7 @@ std::string HdrHistogramMeasurements::GetStatusMsg() {
                << " Max=" << hdr_max(histogram_[op]) / 1000.0
                << " Min=" << hdr_min(histogram_[op]) / 1000.0
                << " Avg=" << hdr_mean(histogram_[op]) / 1000.0
+               << " 50=" << hdr_value_at_percentile(histogram_[op], 50) / 1000.0
                << " 90=" << hdr_value_at_percentile(histogram_[op], 90) / 1000.0
                << " 99=" << hdr_value_at_percentile(histogram_[op], 99) / 1000.0
                << " 99.9=" << hdr_value_at_percentile(histogram_[op], 99.9) / 1000.0

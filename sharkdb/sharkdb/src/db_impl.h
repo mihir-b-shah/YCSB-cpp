@@ -16,6 +16,7 @@
 #include <queue>
 #include <utility>
 #include <cstring>
+#include <sched.h>
 #include <ctime>
 #include <pthread.h>
 #include <errno.h>
@@ -230,6 +231,7 @@ struct stats_t {
     uint32_t n_reads_io_;
     uint32_t n_flush_syncs_;
     uint32_t n_log_syncs_;
+    std::vector<uint64_t> t_read_io_sync_ns_;
     std::vector<uint64_t> t_read_io_ns_;
     std::vector<uint64_t> t_read_io_single_ns_;
     std::vector<uint64_t> t_write_visible_ns_;
@@ -261,6 +263,14 @@ static inline void pthread_rwlock_lock_wrap(pthread_rwlock_t* lock, std::vector<
     //  To silence unused variable error?
     (void) ts_append;
     #endif
+}
+
+static inline void pin_thread(size_t core) {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(core, &mask);
+    int rc = sched_setaffinity(getpid(), sizeof(cpu_set_t), &mask);
+    assert(rc == 0);
 }
 
 #endif

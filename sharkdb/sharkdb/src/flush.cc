@@ -24,6 +24,12 @@ static const char zero_buf[BLOCK_BYTES] = {};
 void* flush_thr_body(void* arg) {
     int rc;
 	partition_t* part = (partition_t*) arg;
+
+    /*
+    printf("pinned on %lu\n", 2+part->tid_);
+    pin_thread(2 + part->tid_);
+    */
+
     get_stats()->thr_name_ = "flush_thread";
 
 	while (!part->db_ref_->stop_thrs_) {

@@ -10,3 +10,4 @@ compile_commands.json
 .cache/
 
 leveldb/leveldb/
+HdrHistogram_c/

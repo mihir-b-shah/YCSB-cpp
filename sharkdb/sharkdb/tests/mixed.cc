@@ -7,10 +7,18 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <sched.h>
+#include <unistd.h>
 
 static constexpr size_t N_OPS = 1000000;
 
 int main() {
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(0, &mask);
+    int rc = sched_setaffinity(getpid(), sizeof(cpu_set_t), &mask);
+    assert(rc == 0);
+
     sharkdb_t* p_db = sharkdb_init();
 
 	std::vector<std::string> ks_strs;

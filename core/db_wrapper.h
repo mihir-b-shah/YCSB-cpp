@@ -9,6 +9,7 @@
 #define YCSB_C_DB_WRAPPER_H_
 
 #include <string>
+#include <cstdio>
 #include <vector>
 
 #include "db.h"

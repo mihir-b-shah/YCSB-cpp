@@ -9,6 +9,7 @@
 #include "core/db_factory.h"
 
 #include <cassert>
+#include <utility>
 
 using std::cout;
 using std::endl;
@@ -56,9 +57,21 @@ DB::Status SharkDB::Scan(const std::string &table, const std::string &key, int l
   return kNotImplemented;
 }
 
+static void DoPoll(sharkdb_t* p_db) {
+  std::pair<bool, sharkdb_cqev> ev;
+  while (true) {
+    ev = sharkdb_cpoll_cq(p_db);
+    assert(ev.first);
+    if (ev.second == SHARKDB_CQEV_FAIL) {
+      break;
+    }
+  }
+}
+
 DB::Status SharkDB::Update(const std::string &table, const std::string &key, std::vector<Field> &values) {
   assert(key.size() == SHARKDB_KEY_BYTES && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_BYTES);
   sharkdb_write_async(this->db_impl, key.data(), values[0].value.data());
+  DoPoll(this->db_impl);
   return kOK;
 }
 
@@ -66,6 +79,7 @@ DB::Status SharkDB::Insert(const std::string &table, const std::string &key,
                            std::vector<Field> &values) {
   assert(key.size() == SHARKDB_KEY_BYTES && values.size() == 1 && values[0].name == FIELD_NAME && values[0].value.size() == SHARKDB_VAL_BYTES);
   sharkdb_write_async(this->db_impl, key.data(), values[0].value.data());
+  DoPoll(this->db_impl);
   return kOK;
 }
 

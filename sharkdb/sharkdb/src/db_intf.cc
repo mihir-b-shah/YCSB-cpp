@@ -69,6 +69,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
     int rc;
 
     #if defined(MEASURE)
+    uint64_t t_sync_before = get_ts_nsecs();
     get_stats()->n_reads_ += 1;
     #endif
 
@@ -96,6 +97,7 @@ sharkdb_cqev sharkdb_read_async(sharkdb_t* db, const char* k, char* fill_v) {
 		memcpy(fill_v, v_found, SHARKDB_VAL_BYTES);
         //  lclk=0 suffices here, reads should become visible as soon as appear in queue.
         cq->emplace(part, 0, cqev, true);
+        get_stats()->t_read_io_sync_ns_.push_back(get_ts_nsecs() - t_sync_before);
 	} else {
         /*  Scan bloom filters in order, until I find a match.
             Issue a read for the range of blocks the fence ptr tells me about.

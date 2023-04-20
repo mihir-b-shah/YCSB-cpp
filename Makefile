@@ -16,8 +16,8 @@ BIND_LEVELDB ?= 1
 
 # Extra options
 DEBUG_BUILD ?= 0
-EXTRA_CXXFLAGS ?= -I./leveldb/leveldb/include -I./sharkdb/sharkdb
-EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -Wl,-rpath=./sharkdb/sharkdb/build -lsnappy -L./sharkdb/sharkdb/liburing/lib -Wl,-rpath=./sharkdb/sharkdb/liburing/lib -luring
+EXTRA_CXXFLAGS ?= -I./leveldb/leveldb/include -I./sharkdb/sharkdb -I./HdrHistogram_c/include/
+EXTRA_LDFLAGS ?= -L./leveldb/leveldb/build -L./sharkdb/sharkdb/build -Wl,-rpath=./sharkdb/sharkdb/build -lsnappy -L./sharkdb/sharkdb/liburing/lib -Wl,-rpath=./sharkdb/sharkdb/liburing/lib -luring -L./HdrHistogram_c/build/src/ -Wl,-rpath=./HdrHistogram_c/build/src/ -lhdr_histogram
 
 #----------------------------------------------------------
 
@@ -26,6 +26,7 @@ ifeq ($(DEBUG_BUILD), 1)
 else
 	CXXFLAGS += -O2
 	CPPFLAGS += -DNDEBUG
+	CPPFLAGS += -DHDRMEASUREMENT
 endif
 
 ifeq ($(BIND_SHARKDB), 1)
